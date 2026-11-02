@@ -1,0 +1,11 @@
+cause,spells,median_games,censored
+illness,787,2.0,0.0
+injury_major,908,13.0,0.6310572687224669
+injury_minor,6028,3.0,0.07149966821499668
+other,17,3.0,0.0
+personal,222,2.0,0.009009009009009009
+protocol,417,5.0,0.0
+rest,199,1.0,0.0
+stash,3268,4.0,0.0006119951040391676
+suspension,9,2.0,0.0
+unknown,38628,1.0,0.0004142073107590349

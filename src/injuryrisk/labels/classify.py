@@ -139,6 +139,11 @@ def audit_sample(events: pd.DataFrame, first_season: int, n: int = 240, seed: in
         for _, g in pool.groupby("event_class")
     ]
     sample = pd.concat(parts)
+    # Small classes can't fill their share; top up from the rest of the pool.
+    short = n - len(sample)
+    if short > 0:
+        rest = pool.drop(sample.index)
+        sample = pd.concat([sample, rest.sample(min(short, len(rest)), random_state=seed)])
     cols = ["date", "team_name", "player_name", "notes", "event_class"]
     sample = sample[cols].sample(frac=1.0, random_state=seed).reset_index(drop=True)
     sample["true_class"] = ""

@@ -78,8 +78,11 @@ def write_report(cfg: dict) -> Path:
             verdict = ("The full GBM never clears the noise floor against history-only. Workload, "
                        "schedule and physical features add nothing detectable. That is a valid result.")
         else:
-            verdict = (f"The full GBM clears the noise floor in {wins} of {len(g)} test seasons. The "
-                       f"evidence that workload adds signal beyond history is mixed.")
+            losses = int((g["diff_hi"] < 0).sum())
+            verdict = (f"The full GBM clears the noise floor in {wins} of {len(g)} test seasons"
+                       + (f" and is significantly *worse* than history-only in {losses}" if losses else "")
+                       + ". Workload, schedule and physical features add no reliable signal beyond "
+                       "injury history at this horizon.")
         out.append(verdict + "\n")
 
         out.append("### Is the alert list worth acting on?\n")
