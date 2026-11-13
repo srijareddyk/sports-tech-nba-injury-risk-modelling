@@ -1,0 +1,35 @@
+abbr,team_id,lat,lon,utc_offset,note
+ATL,1610612737,33.757,-84.396,-5,State Farm Arena
+BOS,1610612738,42.366,-71.062,-5,TD Garden
+BKN,1610612751,40.683,-73.976,-5,Barclays Center
+NJN,1610612751,40.812,-74.074,-5,Meadowlands / Newark (Nets pre-2012)
+CHA,1610612766,35.225,-80.839,-5,Spectrum Center (Bobcats and Hornets)
+CHI,1610612741,41.881,-87.674,-6,United Center
+CLE,1610612739,41.496,-81.688,-5,Rocket Mortgage FieldHouse
+DAL,1610612742,32.790,-96.810,-6,American Airlines Center
+DEN,1610612743,39.749,-105.008,-7,Ball Arena
+DET,1610612765,42.341,-83.055,-5,Little Caesars Arena (Palace of Auburn Hills ~40 km north pre-2017)
+GSW,1610612744,37.768,-122.388,-8,Chase Center (Oracle Arena ~20 km east pre-2019)
+HOU,1610612745,29.751,-95.362,-6,Toyota Center
+IND,1610612754,39.764,-86.155,-5,Gainbridge Fieldhouse
+LAC,1610612746,34.043,-118.267,-8,Crypto.com Arena (Intuit Dome 2024-25)
+LAL,1610612747,34.043,-118.267,-8,Crypto.com Arena
+MEM,1610612763,35.138,-90.051,-6,FedExForum
+MIA,1610612748,25.781,-80.188,-5,Kaseya Center
+MIL,1610612749,43.045,-87.917,-6,Fiserv Forum
+MIN,1610612750,44.979,-93.276,-6,Target Center
+NOH,1610612740,29.949,-90.082,-6,Smoothie King Center (Hornets)
+NOP,1610612740,29.949,-90.082,-6,Smoothie King Center (Pelicans)
+NOK,1610612740,35.463,-97.515,-6,Ford Center OKC (Hornets 2005-07)
+NYK,1610612752,40.751,-73.993,-5,Madison Square Garden
+OKC,1610612760,35.463,-97.515,-6,Paycom Center
+SEA,1610612760,47.622,-122.354,-8,KeyArena (SuperSonics pre-2008)
+ORL,1610612753,28.539,-81.384,-5,Kia Center
+PHI,1610612755,39.901,-75.172,-5,Wells Fargo Center
+PHX,1610612756,33.446,-112.071,-7,Footprint Center
+POR,1610612757,45.532,-122.667,-8,Moda Center
+SAC,1610612758,38.580,-121.500,-8,Golden 1 Center
+SAS,1610612759,29.427,-98.438,-6,Frost Bank Center
+TOR,1610612761,43.643,-79.379,-5,Scotiabank Arena
+UTA,1610612762,40.768,-111.901,-7,Delta Center
+WAS,1610612764,38.898,-77.021,-5,Capital One Arena

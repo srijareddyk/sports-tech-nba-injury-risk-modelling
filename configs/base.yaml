@@ -1,0 +1,68 @@
+# Pre-registered configuration. Change it BEFORE looking at a test season,
+# never after. Every model fit is logged to experiments/log.csv with this
+# file's hash.
+
+seasons:
+  first: 2006          # end-year naming: 2006 = 2005-06
+  last: 2025           # 2024-25
+
+# Injury labels need the PST log, which ends in April 2023. Seasons after this
+# have features but no labels and are never scored.
+label_last_season: 2023
+
+# 2019-20 (bubble, 64-75 games) and 2020-21 (72 games, protocols) are a
+# different population. exclude: dropped from train and test.
+# flag: kept, reported separately, never used as a test season.
+covid_seasons: [2020, 2021]
+covid_mode: exclude
+
+pst_files:
+  - "NBA Player Injury Stats(1951 - 2023).csv"
+  - "nba_injuries_2018_2023.csv"
+
+labels:
+  horizons: [1, 3]                 # games
+  event_window_days: 3             # as-of join tolerance, event <-> spell start
+  attribute_within_spell: true     # fall back to any event inside the spell
+  major_min_games: 12              # a minor-noted spell this long counts as major
+  span_extension_days: 7           # extend a stint to season end if an injury
+                                   # event lands this soon after the last game
+
+features:
+  box_score_lag: 1                 # box-score stats from games strictly before t
+  prior_season_shrink_games: 10    # shrinkage for prior-season per-game rates
+  groups: [workload, schedule, availability, injury_history, physical, role, intensity]
+
+split:
+  # Forward chaining: train on seasons before val, select on val, refit on
+  # train+val, score the test season. One row per test season in every report.
+  test_seasons: [2016, 2017, 2018, 2019, 2022, 2023]
+  min_train_seasons: 5
+
+models:
+  primary_target: any               # any | minor | major
+  primary_horizon: 1
+  logistic_C: 1.0
+  # The whole GBM search space, fixed in advance. Four configs.
+  gbm_grid:
+    - {learning_rate: 0.05, max_leaf_nodes: 15, min_samples_leaf: 500, l2_regularization: 1.0, max_iter: 300}
+    - {learning_rate: 0.05, max_leaf_nodes: 31, min_samples_leaf: 500, l2_regularization: 1.0, max_iter: 300}
+    - {learning_rate: 0.05, max_leaf_nodes: 15, min_samples_leaf: 2000, l2_regularization: 1.0, max_iter: 300}
+    - {learning_rate: 0.10, max_leaf_nodes: 15, min_samples_leaf: 1000, l2_regularization: 1.0, max_iter: 200}
+
+evaluation:
+  alert_budget_per_team_game: 2    # flag the top-k players per team per game
+  bootstrap_reps: 300              # player-level resamples
+  calibration_bins: 10
+  cost_rest_games: 1.0             # one game sat per alert
+  cost_injury_games: mean_spell    # or a number; mean_spell = training mean
+  rest_efficacy: 1.0               # share of flagged injuries rest would prevent.
+                                   # 1.0 is an optimistic upper bound.
+  seed: 7
+
+team_index:
+  horizon_games: 10
+  fragility_threshold: 0.15        # P(new spell within horizon)
+
+causal:
+  treatments: [b2b, three_in_four, four_in_six]
