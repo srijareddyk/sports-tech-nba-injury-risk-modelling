@@ -39,12 +39,19 @@ def brier_skill(y, p) -> float:
 
 
 def budget_flags(frame: pd.DataFrame, score: np.ndarray, k: int,
-                 group_cols: tuple[str, ...] = ("TEAM_ID", "GAME_ID")) -> np.ndarray:
-    """True for the top-``k`` scores within each team-game."""
-    df = frame[list(group_cols)].copy()
-    df["_s"] = score
-    rank = df.groupby(list(group_cols))["_s"].rank(method="first", ascending=False)
-    return (rank <= k).to_numpy()
+                 group_cols: tuple[str, ...] = ("TEAM_ID", "GAME_ID"), seed: int = 7) -> np.ndarray:
+    """True for the top-``k`` scores within each team-game.
+
+    Ties are broken at random (fixed seed). ``rank(method="first")`` broke them
+    by row order, so a constant score (the base rate) flagged the lowest
+    ``PLAYER_ID``s instead of a random k.
+    """
+    df = frame[list(group_cols)].copy().reset_index(drop=True)
+    df["_s"] = np.asarray(score, dtype=float)
+    df["_tie"] = np.random.default_rng(seed).random(len(df))
+    df = df.sort_values(["_s", "_tie"], ascending=[False, True])
+    rank = df.groupby(list(group_cols)).cumcount() + 1
+    return (rank.sort_index() <= k).to_numpy()
 
 
 def break_even_precision(cost_rest: float, cost_injury: float, efficacy: float) -> float:

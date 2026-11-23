@@ -1,7 +1,7 @@
 {
   "2016": {
     "learning_rate": 0.05,
-    "max_leaf_nodes": 31,
+    "max_leaf_nodes": 15,
     "min_samples_leaf": 500,
     "l2_regularization": 1.0,
     "max_iter": 300
@@ -16,7 +16,7 @@
   "2018": {
     "learning_rate": 0.05,
     "max_leaf_nodes": 15,
-    "min_samples_leaf": 500,
+    "min_samples_leaf": 2000,
     "l2_regularization": 1.0,
     "max_iter": 300
   },

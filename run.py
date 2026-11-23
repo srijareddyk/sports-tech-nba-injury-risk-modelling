@@ -13,6 +13,7 @@
     python run.py spell-length   #     games missed per new spell
     python run.py causal         # M7  B2B second-night effect, player fixed effects
     python run.py team-index     # M8  team health index vs actual minutes lost
+    python run.py hypotheses     #     pre-stated hypotheses A, B, C (configs/hypotheses.yaml)
     python run.py report         # M9  reports/REPORT.md
     python run.py all            # everything after collect, in order
 
@@ -202,15 +203,23 @@ def stage_model(cfg):
 
 
 def stage_risk_factors(cfg):
+    from injuryrisk.causal.b2b import NEXT_GAP_DUMMIES, prepare
     from injuryrisk.evaluate.splits import usable_seasons
     from injuryrisk.labels.target import label_column
-    from injuryrisk.models.survival import risk_factor_table
+    from injuryrisk.models.survival import HAZARD_FEATURES, risk_factor_table
     table = io.load("model_table")
     seasons = usable_seasons(cfg, sorted(table["season"].unique()))
+    d = table[table["season"].isin(seasons)]
+    gaps = prepare(d[["next_game_gap", "travel_km", "abs_tz_shift", "age"]])[NEXT_GAP_DUMMIES]
+    d = pd.concat([d, gaps], axis=1)
+    # The next-game gap is adjusted for, not reported: without it the b2b odds
+    # ratio picks up "next game is rarely the next day" (Hypothesis C).
+    feats = HAZARD_FEATURES + NEXT_GAP_DUMMIES
     rows = []
     for target in ("any", "minor", "major"):
         label = label_column(target, 1)
-        tab = risk_factor_table(table[table["season"].isin(seasons)], label)
+        tab = risk_factor_table(d, label, feats)
+        tab = tab[~tab["term"].isin(NEXT_GAP_DUMMIES)]
         rows.append(tab.assign(target=target))
         if target == "any":
             print(tab[["term", "odds_ratio", "or_lo", "or_hi", "p_value"]].round(3).to_string(index=False))
@@ -318,6 +327,23 @@ def stage_team_index(cfg):
     print(res[res["test_season"] == "all"].round(3).to_string(index=False))
 
 
+def stage_hypotheses(cfg):
+    from injuryrisk import hypotheses as H
+    res = H.run_all(io.load("model_table"), io.load("panel"), io.load("spells"), cfg)
+    _write(res["label_drift"], "hyp_label_drift.csv")
+    _write(res["A"]["curves"], "hyp_a_curve.csv")
+    _write(res["A"]["robustness"], "hyp_a_robustness.csv")
+    _write(pd.DataFrame([res["A"]["units"]]), "hyp_a_units.csv")
+    _write(res["B"]["comparison"], "hyp_b_comparison.csv")
+    _write(res["B"]["terciles"], "hyp_b_terciles.csv")
+    _write(res["C"]["effects"], "hyp_c_effects.csv")
+    _write(res["summary"], "hypotheses_summary.csv")
+    for path in H.figures(res["A"], res["B"], res["C"], REPORTS):
+        print(f"  -> {path.relative_to(REPORTS.parent)}")
+    print(res["summary"][["hypothesis", "estimate", "ci_lo", "ci_hi", "threshold", "holm_p",
+                          "holds_after_holm"]].round(4).to_string(index=False))
+
+
 def stage_report(cfg):
     from injuryrisk.report import write_report
     path = write_report(cfg)
@@ -329,10 +355,10 @@ STAGES = {
     "audit-score": stage_audit_score, "labels": stage_labels, "features": stage_features,
     "baselines": stage_baselines, "model": stage_model, "risk-factors": stage_risk_factors,
     "interpret": stage_interpret, "spell-length": stage_spell_length, "causal": stage_causal,
-    "team-index": stage_team_index, "report": stage_report,
+    "team-index": stage_team_index, "hypotheses": stage_hypotheses, "report": stage_report,
 }
 ALL_ORDER = ["events", "labels", "features", "baselines", "model", "risk-factors", "interpret",
-             "spell-length", "causal", "team-index", "audit-sample", "report"]
+             "spell-length", "causal", "team-index", "hypotheses", "audit-sample", "report"]
 
 
 def main(argv=None) -> int:

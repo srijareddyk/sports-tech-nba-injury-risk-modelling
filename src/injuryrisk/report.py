@@ -1,5 +1,8 @@
 """Assemble ``reports/REPORT.md`` from the stage outputs (M9).
 
+The report leads with the three pre-stated hypotheses (``report_hypotheses``);
+the predictive pipeline's results follow as an appendix.
+
 Every number comes from a CSV written by an earlier stage; the prose around
 them is conditional on those numbers, so a rerun can't leave a stale claim.
 """
@@ -12,6 +15,7 @@ import pandas as pd
 
 from injuryrisk.config import season_label
 from injuryrisk.paths import REPORTS
+from injuryrisk.report_hypotheses import hypothesis_sections
 
 
 def _read(name: str) -> pd.DataFrame | None:
@@ -38,14 +42,16 @@ def write_report(cfg: dict) -> Path:
     k = int(cfg["evaluation"]["alert_budget_per_team_game"])
     tgt, hor = cfg["models"]["primary_target"], int(cfg["models"]["primary_horizon"])
     tests = ", ".join(season_label(int(s)) for s in cfg["split"]["test_seasons"])
-    out: list[str] = ["# NBA Injury Risk: Results\n",
-                      f"Generated from `{Path(cfg['_path']).name}`. Test seasons (forward-chained, "
+    out: list[str] = hypothesis_sections(cfg)
+    out.append("---\n\n# Appendix: the predictive pipeline\n")
+    out += [f"Generated from `{Path(cfg['_path']).name}`. Test seasons (forward-chained, "
                       f"one at a time): {tests}. COVID seasons 2019-20 and 2020-21: "
                       f"{cfg['covid_mode']}. Labels end {season_label(int(cfg['label_last_season']))} "
-                      f"(PST log coverage).\n"]
+                      f"(PST log coverage). Context for the hypotheses above: the project no longer competes "
+                      f"on predictive accuracy.\n"]
 
     # 1. Headline ---------------------------------------------------------
-    out.append("## 1. Per-player injury probability\n")
+    out.append("## A1. Per-player injury probability\n")
     summ = _read("model_summary.csv")
     by_season = _read("model_by_season.csv")
     if summ is None:
@@ -116,15 +122,17 @@ def write_report(cfg: dict) -> Path:
             out.append("![calibration](calibration_primary.png)\n")
 
     # 2. Risk factors -----------------------------------------------------
-    out.append("## 2. Ranked risk factors (associations)\n")
+    out.append("## A2. Ranked risk factors (associations)\n")
     rf = _read("risk_factors.csv")
     if rf is None:
         out.append(_missing("risk-factors"))
     else:
         r = rf[rf["target"] == "any"].head(15)
         out.append("Discrete-time hazard (logistic on the at-risk set, H = 1), all covariates in one "
-                   "model, odds ratio per 1 SD, 95% CIs clustered by player. **Associations, not "
-                   "effects:** minutes are endogenous (coaches cut minutes for players who look hurt).\n")
+                   "model, odds ratio per 1 SD, 95% CIs clustered by player. Days until the next game are "
+                   "adjusted for (not shown). The small `b2b` association that remains is pooled across "
+                   "players; the within-player estimate in A4 finds no B2B effect. "
+                   "**Associations, not effects:** minutes are endogenous (coaches cut minutes for players who look hurt).\n")
         out.append(md_table(r[["term", "scale", "odds_ratio", "or_lo", "or_hi", "p_value"]], 3) + "\n")
     imp = _read("importance_groups.csv")
     if imp is not None:
@@ -142,7 +150,7 @@ def write_report(cfg: dict) -> Path:
         out.append(md_table(age, 4) + "\n")
 
     # 3. Minor vs major ---------------------------------------------------
-    out.append("## 3. Minor vs major injuries\n")
+    out.append("## A3. Minor vs major injuries\n")
     mvm = _read("minor_vs_major.csv")
     if mvm is None:
         out.append(_missing("interpret"))
@@ -156,14 +164,19 @@ def write_report(cfg: dict) -> Path:
         out.append(md_table(sl.groupby("model")[["mae", "spearman"]].mean().reset_index(), 3) + "\n")
 
     # 4. Causal -----------------------------------------------------------
-    out.append("## 4. Rest and schedule: the causal slice\n")
+    out.append("## A4. Back-to-backs, with the next-game control\n")
     cb = _read("causal_b2b.csv")
     if cb is None:
         out.append(_missing("causal"))
     else:
         out.append("Linear probability model, player fixed effects + season dummies, controls for home, "
-                   "travel, time-zone shift and age; SEs clustered by player. Effects in percentage points "
-                   "of P(new injury spell starts next game).\n")
+                   "travel, time-zone shift, age and **days until the next game**; SEs clustered by player. "
+                   "Effects in percentage points of P(new injury spell starts next game).\n\n"
+                   "Correction to the earlier version of this report: it read a negative B2B estimate as "
+                   "'back-to-backs are protective'. That was an artifact. The outcome is measured at the "
+                   "next game; after the second night of a back-to-back the next game is almost never the "
+                   "next day, and a next-day game makes sitting more likely. The estimates below control "
+                   "for the next-game gap. The schedule question is asked directly as Hypothesis C.\n")
         out.append(md_table(cb[["treatment", "label", "rate_treated", "rate_control", "naive_diff_pp",
                                 "fe_effect_pp", "fe_ci_lo_pp", "fe_ci_hi_pp", "fe_p_value"]], 3) + "\n")
         sel = _read("causal_selection_check.csv")
@@ -174,7 +187,7 @@ def write_report(cfg: dict) -> Path:
             out.append(md_table(sel, 4) + "\n")
 
     # 5. Team index -------------------------------------------------------
-    out.append("## 5. Team Health Index\n")
+    out.append("## A5. Team Health Index\n")
     ti = _read("team_index_validation.csv")
     if ti is None:
         out.append(_missing("team-index"))
@@ -186,7 +199,7 @@ def write_report(cfg: dict) -> Path:
                                                              "spearman_lo", "spearman_hi"]], 3) + "\n")
 
     # 6. Data and labels --------------------------------------------------
-    out.append("## 6. Data and labels\n")
+    out.append("## A6. Data and labels\n")
     for name, title in (("data_mapping.csv", "PST -> PLAYER_ID mapping (modelled seasons)"),
                         ("event_classes.csv", "Event classes"),
                         ("spell_causes.csv", "Absence spells by attributed cause"),
@@ -207,7 +220,7 @@ def write_report(cfg: dict) -> Path:
                    f"(`experiments/log.csv`).\n")
 
     # 7. Limits -----------------------------------------------------------
-    out.append("## 7. Limits\n")
+    out.append("## A7. Limits\n")
     out.append("""- **No tracking load.** Public box scores have no distance, speed, jump counts, force-plate or
   sleep data. Minutes are a coarse proxy for load. This caps any public-data model.
 - **Association vs causation.** Everything except section 4 is predictive. A risk factor's odds ratio is

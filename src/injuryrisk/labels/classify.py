@@ -18,9 +18,10 @@ class               example notes                            in target?
 
 Precedence: protocol > suspension > personal > illness > rest > major > minor
 > stash > other. Two exceptions: structural damage (surgery, tear, fracture)
-beats rest, because "rest" in such notes is never the cause. And illness yields
-to injury when a body part is named ("sore knee, flu-like symptoms" is still a
-knee).
+beats rest, because "rest" in such notes is never the cause. Illness and rest
+both yield to injury when a body part is named ("sore knee, flu-like symptoms"
+and "knee injury / rest" are still a knee), except explicit management wording
+("injury management", "DNP-CD"), which stays rest.
 
 Run ``python run.py audit-sample`` to draw a stratified sample for hand
 labelling, then ``python run.py audit-score`` for per-class precision (M2).
@@ -73,9 +74,11 @@ def classify_note(note: str | None) -> dict:
         cls = "suspension"
     elif V.contains_any(text, V.PERSONAL_LANGUAGE) and not injury_named:
         cls = "personal"
-    elif V.contains_any(text, V.ILLNESS_LANGUAGE) and not body_named:
+    elif V.contains_any(text, V.ILLNESS_LANGUAGE) and not body_named and pathology not in (
+            "torn", "fractured") and not V.contains_any(text, ("injury", "injured")):
         cls = "illness"
-    elif V.contains_any(rest_text, V.LOAD_MANAGEMENT_LANGUAGE) and not structural:
+    elif V.contains_any(rest_text, V.LOAD_MANAGEMENT_LANGUAGE) and not structural and (
+            not body_named or V.contains_any(rest_text, V.PURE_MANAGEMENT_LANGUAGE)):
         cls = "rest"
     elif structural or season_ending or (stated is not None and stated >= MAJOR_STATED_DAYS):
         cls = "injury_major"

@@ -16,13 +16,24 @@ missing *t+1* is a positive for H = 1.
 Targets: ``any`` (minor or major), ``minor``, ``major``. Severity comes from
 ``attribute_spells``: major = a major-class note, or a minor note on a spell of
 at least ``major_min_games`` games.
+
+Robustness targets (RECOMMENDATIONS 0.1):
+
+* ``dur2`` / ``dur3``: an injury spell (minor or major) lasting at least 2 / 3
+  games. Most of the rise in logged injuries since 2017-18 is one-game spells,
+  some of them rest days logged as soreness. A result that holds on ``dur3`` is
+  about injuries; one that holds only on ``any`` may be about rest decisions.
+  A spell censored by season end counts at its observed length, so a 1-game
+  spell on the last day of the season is not durable (conservative).
+* ``illness``: a spell attributed to illness. Not an injury target: it is the
+  placebo outcome for the schedule test (the schedule should not cause flu).
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-TARGETS = ("any", "minor", "major")
+TARGETS = ("any", "minor", "major", "dur2", "dur3", "illness")
 
 
 def label_column(target: str, horizon: int) -> str:
@@ -40,10 +51,15 @@ def attach_targets(panel: pd.DataFrame, spells: pd.DataFrame, horizons: list[int
         first_row, panel["spell_id"].map(spells.set_index("spell_id")["cause"]).fillna("unknown"), "")
 
     sev = panel["spell_start_severity"]
+    length = np.where(first_row, panel["spell_id"].map(spells.set_index("spell_id")["length"]), 0)
+    injury = sev.isin(["minor", "major"])
     flags = {
-        "any": sev.isin(["minor", "major"]).astype(float),
+        "any": injury.astype(float),
         "minor": (sev == "minor").astype(float),
         "major": (sev == "major").astype(float),
+        "dur2": (injury & (length >= 2)).astype(float),
+        "dur3": (injury & (length >= 3)).astype(float),
+        "illness": (panel["spell_start_cause"] == "illness").astype(float),
     }
     grp = panel.groupby("stint_id")
     pos_in_stint = grp.cumcount()

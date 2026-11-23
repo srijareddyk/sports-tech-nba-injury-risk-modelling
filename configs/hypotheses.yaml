@@ -1,0 +1,101 @@
+# Pre-stated hypotheses (RECOMMENDATIONS.md, Step 1).
+#
+# Written 2026-11-23, before `python run.py hypotheses` was first run. Every
+# outcome is reported, null or not. Disclosure: the exploratory figures marked
+# "(check)" in RECOMMENDATIONS.md were seen before this file was written; they
+# motivated the hypotheses and are not the tests.
+#
+# Umbrella claim: public, league-wide data supplies three things a team's own
+# biometrics can't (league-wide base rates, history on players it doesn't own
+# yet, a schedule known months ahead). Each hypothesis tests one of them.
+
+label:
+  primary_target: any          # new injury spell (minor or major) starts next game
+  horizon: 1
+  durable_targets: [dur3, dur2]  # spells of 3+ / 2+ games; run on every hypothesis
+  # 2021-22: kept, flagged (16% of rotation players' spells are protocol-coded,
+  # already excluded from the target), and re-run without it as a sensitivity check.
+  flagged_seasons: [2022]
+  # COVID seasons (2019-20, 2020-21) supply history and the "previous team" for
+  # Hypothesis B, never labelled rows.
+  history_only_seasons: [2020, 2021]
+
+holdout:
+  # No new labels exist after 2022-23 (the PST log ends April 2023). 2022-23 is
+  # the confirmation season and is reported on its own. It is NOT untouched: it
+  # was scored in the earlier `smoke` and `model` runs (experiments/log.csv)
+  # and in the original report.
+  confirmation_season: 2023
+  untouched: false
+
+multiple_testing:
+  method: holm
+  alpha: 0.05
+  # Each primary test gives a one-sided p-value against its threshold; Holm is
+  # applied to the two-sided-equivalent p = min(1, 2 * p_one_sided), so a
+  # result that clears Holm also has its 95% interval past the threshold.
+  primary: [A, B, C]
+
+hypotheses:
+  A:
+    name: return window
+    role: headline
+    statement: >-
+      A player's risk of a new injury spell is raised in the first games after he
+      returns from an injury, compared with his own later baseline. The raised
+      risk is at least 1.5x in the first 5 games back and fades within a
+      measurable number of games.
+    design: >-
+      Linear probability hazard on the H = 1 risk set, player fixed effects,
+      player-clustered SEs. Games-since-return bins 0, 1-2, 3-5, 6-10, 11-20,
+      21-40, reference 41+; rows before a player's first injury get their own
+      indicator. Controls: season dummies, age, log(1 + previous spell length).
+      Primary fit excludes minutes; a second fit adds this game's minutes and
+      the 3-game minutes mean.
+    primary_result: risk ratio for games 0-5 back vs 41+ = 1 + coef / reference-bin rate
+    threshold: {statistic: risk_ratio, direction: greater, value: 1.5}
+    secondary_result: first bin whose 95% interval includes no effect = window length
+    robustness: [durable targets, previous spell minor vs major, same vs different body region,
+                 era 2006-17 vs 2018-23, without 2021-22, confirmation season alone, with minutes]
+    seasons: usable           # labelled, non-COVID seasons
+
+  B:
+    name: acquired players
+    role: supporting
+    statement: >-
+      For a player in his first season with a new team, public injury history
+      ranks his risk of new injury spells better than what a front office would
+      know without it (age, minutes, role).
+    design: >-
+      New team = a stint with a team the player did not appear for in the
+      previous season (the player must have appeared that season). Forward
+      chain as in configs/base.yaml: fit on all rows of the fit seasons, score
+      the test seasons, pool new-team test rows across test seasons.
+      Front-office model: age, mpg_prior, mpg_last10_played, usage_prior.
+      History model: the same plus days since last injury, prior injury count,
+      missed_lag1 (history_age_role). Same comparison on same-team rows.
+    primary_result: paired player-bootstrap PR-AUC difference (history minus front office), new-team rows
+    threshold: {statistic: pr_auc_diff, direction: greater, value: 0.0}
+    secondary_result: the same gain on new-team rows minus the gain on same-team rows
+    seasons: test_seasons
+
+  C:
+    name: schedule density
+    role: supporting
+    statement: >-
+      Players are more likely to miss the next game with a new injury spell when
+      that game is on the next day, after controlling for rest before the
+      current game.
+    design: >-
+      Linear probability model, player fixed effects, season dummies,
+      player-clustered SEs. Treatment: next team game is the next day.
+      Controls: home, travel, time-zone shift, age, and rest before this game
+      (second night of a back-to-back, 3-in-4).
+      Dose response: next game in 1, 2, 3 days vs 4+.
+      Placebo outcome: illness spells (the schedule should not cause illness).
+    primary_result: next-day effect in percentage points on the primary target
+    threshold: {statistic: effect_pp, direction: greater, value: 0.0}
+    interpretation: >-
+      Read as availability, not injury, unless the effect survives the durable
+      target and the illness placebo is null.
+    seasons: usable

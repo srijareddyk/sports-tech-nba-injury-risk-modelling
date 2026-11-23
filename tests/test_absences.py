@@ -97,3 +97,43 @@ def test_cause_attribution_and_target(rng):
     assert p1.loc[7, "y_any_h1"] == 0
     # Not enough games left for H = 3 and no positive: censored.
     assert pd.isna(p1.loc[9, "y_any_h3"])
+
+
+def test_late_signing_is_not_missed_games(rng):
+    # Player 6 joins BOS at game 5 of 8 and plays every game after. Before the
+    # fix, the 4 games before he joined counted as missed (RECOMMENDATIONS 0.3).
+    logs = make_logs(_schedule(2013, 8, "2012-11-01",
+                               lambda i: [(1, BOS), (2, LAL)] + ([(6, BOS)] if i >= 4 else [])), rng)
+    tg, _, panel, _ = _build(logs)
+    row = absences.season_availability(panel, tg).set_index("PLAYER_ID").loc[6]
+    assert row["played"] == 4 and row["missed"] == 0 and row["scheduled"] == 4
+
+
+def test_durable_and_illness_targets(rng):
+    # Player 1 misses game 3 (1 game, ankle), games 6-8 (3 games, knee) and game 10 (illness).
+    logs = make_logs(_schedule(2013, 12, "2012-11-01",
+                               lambda i: [(2, LAL), (5, BOS)] + ([] if i in (2, 5, 6, 7, 9) else [(1, BOS)])), rng)
+    dates = sorted(logs["GAME_DATE"].unique())
+    ev = make_events([
+        (1, dates[2], "placed on IL with sprained right ankle"),
+        (1, dates[5], "placed on IL with sore left knee"),
+        (1, dates[9], "placed on IL with flu"),
+    ])
+    _, _, panel, spells = _build(logs, ev)
+    s = absences.attribute_spells(spells, ev)
+    panel = target.attach_targets(panel, s, [1])
+    p1 = panel[(panel["PLAYER_ID"] == 1) & (panel["played"] == 1)].set_index("game_num")
+    # Game 2 precedes the 1-game ankle spell: an injury, but not durable.
+    assert p1.loc[2, "y_any_h1"] == 1 and p1.loc[2, "y_dur2_h1"] == 0 and p1.loc[2, "y_dur3_h1"] == 0
+    # Game 5 precedes the 3-game knee spell: durable on both thresholds.
+    assert p1.loc[5, "y_dur2_h1"] == 1 and p1.loc[5, "y_dur3_h1"] == 1
+    # Game 9 precedes the illness spell: the placebo label, not an injury.
+    assert p1.loc[9, "y_illness_h1"] == 1 and p1.loc[9, "y_any_h1"] == 0
+
+
+def test_next_game_gap(rng):
+    from injuryrisk.features.schedule import team_schedule_features
+    logs = make_logs(_schedule(2013, 4, "2012-11-01", lambda i: [(1, BOS), (2, LAL)]), rng)
+    sched = team_schedule_features(absences.build_team_games(logs))
+    gaps = sched[sched["TEAM_ID"] == BOS]["next_game_gap"].tolist()
+    assert gaps[:3] == [2, 2, 2] and pd.isna(gaps[3])

@@ -62,7 +62,8 @@ STRUCTURE_TERMS: Table = (
 #: Body regions, most specific first so "lower back" beats "back".
 REGION_TERMS: Table = (
     ("lower back", ("lower back", "lumbar")),
-    ("core muscle", ("core muscle", "abdominal", "abdomen", "oblique", "sports hernia")),
+    ("core muscle", ("core muscle", "abdominal", "abdomen", "oblique", "sports hernia",
+                     "stomach muscle", "abdominal muscle")),
     ("knee", ("knee",)),
     ("ankle", ("ankle",)),
     ("shin", ("shin",)),
@@ -157,15 +158,20 @@ LOAD_MANAGEMENT_LANGUAGE: tuple[str, ...] = (
 #: Bare "protocol" is deliberately absent: "concussion protocol" is an injury.
 PROTOCOL_LANGUAGE: tuple[str, ...] = (
     "health and safety", "health & safety", "covid", "covid-19", "coronavirus",
+    "quarantine", "quarantined",       # post-audit (2026-11-23)
 )
 
-SUSPENSION_LANGUAGE: tuple[str, ...] = ("suspension", "suspended", "suspend")
+SUSPENSION_LANGUAGE: tuple[str, ...] = (
+    "suspension", "suspended", "suspend",
+    # Post-audit (2026-11-23): team discipline, labelled suspension by hand.
+    "late for", "late to", "team rules", "conditioning standards", "disciplinary",
+)
 
 PERSONAL_LANGUAGE: tuple[str, ...] = (
     "personal", "personal reasons", "bereavement", "family", "birth", "paternity",
     "leave of absence", "away from team", "not with team", "religious",
     "league discipline", "legal", "jail", "immigration", "visa", "death", "funeral",
-    "arrest", "late for", "late to",
+    "arrest", "forpersonal",
 )
 
 ILLNESS_LANGUAGE: tuple[str, ...] = (
@@ -177,6 +183,11 @@ ILLNESS_LANGUAGE: tuple[str, ...] = (
     "heart", "cardiac", "vertigo", "dental", "tooth", "wisdom teeth",
     "anemia", "asthma", "allergic", "allergy", "heartbeat", "tonsillitis", "sinus",
     "salmonella", "gastrointestinal", "root canal", "ailment",
+    # Audit sample (RECOMMENDATIONS 0.2): these fell into `other`.
+    "dehydrated", "dehydraftion", "dizziness", "dizzy", "vestibular", "nausea", "lightheaded",
+    # Post-audit (2026-11-23): fell into `other`, labelled illness by hand.
+    "chicken pox", "pox", "throat", "sore throat", "toothache", "gastroentritis", "viris",
+    "lung", "collapsed lung", "aorta", "swollen mouth", "collapsing", "collapsed",
 )
 
 #: Words that mark an injury even with no named body part.
@@ -184,12 +195,23 @@ INJURY_LANGUAGE: tuple[str, ...] = (
     "injury", "injured", "injuries", "concussion", "laceration", "lacerated", "bone spur",
     "hernia", "wound", "rehab", "rehabilitation", "recovering",
     "bone spurs", "stress reaction", "strained", "sprained", "sore",
+    # Post-audit (2026-11-23): fell into `other`, labelled injury by hand.
+    "herniated", "herniated disc", "disc", "stinger", "nerve",
+)
+
+#: Rest wording that is a team decision even when a body part is named
+#: ("knee injury management"). Other rest wording ("knee injury / rest") yields
+#: to the named injury, as illness does.
+PURE_MANAGEMENT_LANGUAGE: tuple[str, ...] = (
+    "load management", "injury management", "maintenance", "dnp-rest", "dnp - rest",
+    "dnp-cd", "coach's decision", "coaches decision", "not injury related",
 )
 
 #: Note padding PST adds that says nothing about the cause.
 _BOILERPLATE_RE = re.compile(
     r"placed on (il|ir|injured list|inactive list)|activated from il|activated|ineligible|"
-    r"\((f|p|cbc|cbc p|not cbc|dtd|out indefinitely|date approximate|date unsure|per [^)]*)\)",
+    r"\((f|p|cbc|cbc p|not cbc|~cbc|fox|dtd|out indefinitely|date approximate|date unsure|per [^)]*|"
+    r"date [^)]*)\)",
     re.IGNORECASE,
 )
 

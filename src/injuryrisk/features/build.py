@@ -84,7 +84,9 @@ def build_model_table(
     features = feature_list(groups)
     assert_features(rows, features, strict=strict)
     label_cols = [c for c in rows.columns if c.startswith("y_")]
-    keep = ID_COLS + ["TEAM_ABBREVIATION", "MIN"] + label_cols + features
+    # MIN (this game's minutes) and next_game_gap are for inference stages
+    # only; neither is in any feature list.
+    keep = ID_COLS + ["TEAM_ABBREVIATION", "MIN", "next_game_gap"] + label_cols + features
     return rows[keep]
 
 
