@@ -24,8 +24,24 @@ def test_rest_of_season_is_not_a_rest_night():
 
 def test_rest_is_rest():
     assert classify_note("placed on IL for rest")["event_class"] == "rest"
-    assert classify_note("placed on IL with knee injury / rest")["event_class"] == "rest"
     assert classify_note("placed on IL with injury management")["event_class"] == "rest"
+    assert classify_note("placed on IL with left knee injury management")["event_class"] == "rest"
+
+
+def test_named_injury_beats_generic_rest():
+    # Audit sample errors (RECOMMENDATIONS 0.2).
+    for note in ("placed on IL with knee injury / rest",
+                 "placed on IL with right knee injury / conditioning",
+                 "placed on IL for rest / sore left knee"):
+        assert classify_note(note)["event_class"] == "injury_minor", note
+
+
+def test_audit_sample_errors():
+    assert classify_note("placed on IL with strained stomach muscle")["event_class"] == "injury_minor"
+    assert classify_note("placed on IL with stomach virus")["event_class"] == "illness"
+    for note in ("placed on IL with dehydraftion", "placed on IL with dizziness",
+                 "placed on IL with vestibular condition"):
+        assert classify_note(note)["event_class"] == "illness", note
 
 
 def test_structural_damage_beats_rest_language():
@@ -62,3 +78,30 @@ def test_parse_absence_days():
     assert V.parse_absence_days("expected to miss 4-6 weeks") == 42
     assert V.parse_absence_days("will be out two months") == 60
     assert V.parse_absence_days("missed 52 games last season") is None
+
+
+def test_post_audit_vocabulary():
+    # Gaps found by the hand-labelled audit (2026-11-23), fixed after scoring.
+    cases = {
+        "placed on IL with chicken pox": "illness",
+        "placed on IL with sore throat": "illness",
+        "placed on IL with toothache": "illness",
+        "placed on IL with herniated disc": "injury_minor",
+        "placed on IL with stinger": "injury_minor",
+        "placed on IL with quarantine for leaving bubble": "protocol",
+        "placed on IL (Fox)": "stash",
+        "placed on IL (~CBC)": "stash",
+        "placed on IL forpersonal reasons": "personal",
+        "placed on IL for being late to practice": "suspension",
+        "placed on IL for not meeting team conditioning standards": "suspension",
+    }
+    for note, expected in cases.items():
+        assert classify_note(note)["event_class"] == expected, (note, classify_note(note)["event_class"])
+
+
+def test_illness_yields_to_named_injury():
+    assert classify_note("placed on IL with stomach injury")["event_class"] == "injury_minor"
+    assert classify_note("placed on IL with fractured rub and partially collapsed lung")["event_class"] == "injury_major"
+    # Surgery for an illness is still illness.
+    assert classify_note("placed on IL recovering from heart surgery")["event_class"] == "illness"
+    assert classify_note("placed on IL with sinus surgery")["event_class"] == "illness"

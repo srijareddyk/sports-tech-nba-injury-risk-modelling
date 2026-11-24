@@ -46,8 +46,13 @@ def team_schedule_features(team_games: pd.DataFrame, arenas: pd.DataFrame | None
     tg["travel_km"] = haversine_km(plat, plon, lat, lon)
     tg["tz_shift"] = tz - ptz
     tg["abs_tz_shift"] = tg["tz_shift"].abs()
+    # Days until the team's next game. Known from the published schedule, but
+    # kept out of SCHEDULE_FEATURES: the predictive models and the leakage test
+    # treat only the past as known. Used as a control in the causal and
+    # hypothesis stages (NaN on a team's last game of the season).
+    tg["next_game_gap"] = days(d.groupby(key).shift(-1), d)
     return tg[["TEAM_ID", "GAME_ID", "team_days_rest", "b2b", "three_in_four", "four_in_six",
-               "road_trip_len", "travel_km", "tz_shift", "abs_tz_shift"]]
+               "road_trip_len", "travel_km", "tz_shift", "abs_tz_shift", "next_game_gap"]]
 
 
 def add_player_schedule(panel: pd.DataFrame) -> pd.DataFrame:

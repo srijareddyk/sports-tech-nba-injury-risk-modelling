@@ -192,13 +192,19 @@ def attribute_spells(
 
 
 def season_availability(panel: pd.DataFrame, team_games: pd.DataFrame) -> pd.DataFrame:
-    """Per player-season: games played, scheduled, missed (spec 4.2).
+    """Per player-season: games played, rostered and missed (spec 4.2).
 
-    A traded player is measured against the longest schedule he was part of, so
-    84 appearances in an 82-game season is not a negative absence.
+    Only games inside the player's roster spans count. A player signed in March
+    did not "miss" the games before he joined, and counting them made
+    ``missed_lag1`` average 30 games against 17.6 in-stint absences.
+    ``scheduled`` is the number of rostered team games (played + missed); the
+    panel already cuts a stint at the start of the next one, so a traded player
+    is never counted twice.
     """
-    played = panel[panel["played"] == 1].groupby(["PLAYER_ID", "season"])["GAME_ID"].nunique()
-    sched = panel.groupby(["PLAYER_ID", "season"])["team_games"].max()
-    out = pd.DataFrame({"played": played, "scheduled": sched}).fillna({"played": 0}).reset_index()
-    out["missed"] = (out["scheduled"] - out["played"]).clip(lower=0)
-    return out
+    g = panel.groupby(["PLAYER_ID", "season"])
+    out = pd.DataFrame({
+        "played": g["played"].sum(),
+        "missed": g["played"].size() - g["played"].sum(),
+    }).reset_index()
+    out["scheduled"] = out["played"] + out["missed"]
+    return out[["PLAYER_ID", "season", "played", "scheduled", "missed"]]
