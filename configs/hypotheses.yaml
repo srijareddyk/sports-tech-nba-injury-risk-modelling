@@ -8,6 +8,16 @@
 # Umbrella claim: public, league-wide data supplies three things a team's own
 # biometrics can't (league-wide base rates, history on players it doesn't own
 # yet, a schedule known months ahead). Each hypothesis tests one of them.
+#
+# Added 2026-11-26, AFTER the A, B and C results had been seen (reports/REPORT.md,
+# commit c666315): the tissue-type secondary analysis under A and Hypothesis D.
+# Why: A found a raised return window, which raises two practitioner questions it
+# can't answer on its own: does the window depend on what kind of tissue the
+# player is coming back from, and is it tied to how fast his minutes come back
+# (the one part of a return staff control)? Both are written here, with their
+# thresholds, before any code for them was written or run. D joins the Holm
+# family (now 4), which can only make A, B and C harder to clear. The tissue
+# analysis is descriptive and sits outside the Holm family.
 
 label:
   primary_target: any          # new injury spell (minor or major) starts next game
@@ -34,7 +44,8 @@ multiple_testing:
   # Each primary test gives a one-sided p-value against its threshold; Holm is
   # applied to the two-sided-equivalent p = min(1, 2 * p_one_sided), so a
   # result that clears Holm also has its 95% interval past the threshold.
-  primary: [A, B, C]
+  # D added 2026-11-26 (see the note at the top): family of 4.
+  primary: [A, B, C, D]
 
 hypotheses:
   A:
@@ -58,6 +69,43 @@ hypotheses:
     robustness: [durable targets, previous spell minor vs major, same vs different body region,
                  era 2006-17 vs 2018-23, without 2021-22, confirmation season alone, with minutes]
     seasons: usable           # labelled, non-COVID seasons
+    secondary_analyses:
+      # Added 2026-11-26, after A/B/C were seen. Descriptive; OUTSIDE the Holm family.
+      tissue_type:
+        in_holm_family: false
+        question: >-
+          Does the return window differ by the tissue type of the injury the
+          player is returning from?
+        groups:
+          # Assigned to each injury spell from its cause note, as a function of
+          # (pathology, structure, region) from the existing vocabulary parser.
+          # Structure takes precedence over pathology.
+          soft_tissue: >-
+            Muscle / tendon / contusion. Pathology strained, inflamed (tendinitis,
+            bursitis, ...), bruised/contusion; structures achilles tendon,
+            patellar tendon, quadriceps tendon, tendon, rotator cuff, plantar
+            fascia; "torn" only when the region is a muscle (hamstring, calf,
+            groin/adductor, quadriceps, thigh, core muscle).
+          ligament: Pathology sprained; structures ACL, MCL, PCL, UCL, ligament. Kept separate from soft_tissue on purpose.
+          joint: Pathology dislocated; structures meniscus, cartilage, labrum.
+          bone: Pathology fractured/broken; structures tibia, fibula, metatarsal, navicular, scaphoid.
+          unspecified: >-
+            Sore / tightness / no pathology, or anything not covered above
+            (e.g. "torn" with no muscle region and no structure). Kept and
+            reported; never dropped.
+        plumbing: re-parse spells.cause_notes with the existing vocab parser (classify_note)
+        design: >-
+          A's design (a_early / a_fit: same controls, same bins, 0-5 vs 41+),
+          run separately on rows whose previous injury spell is in each tissue
+          group. Per group: rows, window positives, risk ratio 0-5 vs 41+ with
+          95% CI, and the null-benchmark bias adjustment as in A's robustness
+          rows. Also the same-region / different-region split per group.
+        power_note: joint and bone are expected to be underpowered; report, don't over-read.
+        audit: >-
+          Stratified sample of 60 distinct cause notes (12 per group) to
+          data/external/tissue_audit_sample.csv with a blank true_group column,
+          for hand labelling. Not filled in here.
+        limitation: report the share of injury spells in each group, including unspecified.
 
   B:
     name: acquired players
@@ -98,4 +146,52 @@ hypotheses:
     interpretation: >-
       Read as availability, not injury, unless the effect survives the durable
       target and the illness placebo is null.
+    seasons: usable
+
+  D:
+    # Added 2026-11-26, after A/B/C were seen (note at the top). In the Holm family.
+    name: minutes ramp-up
+    role: supporting
+    statement: >-
+      Players whose minutes go back to their pre-injury level faster in the
+      first games back have a higher risk of a new injury spell than players
+      brought back gradually, compared with their own baseline.
+    design: >-
+      Rows: the H = 1 risk set, games 1-10 since return (game 0 has no
+      post-return minutes yet), usable seasons as for A. The return is the
+      player's last injury spell visible before tip-off (known_date rule, as
+      for games_since_return). Pre-injury baseline: mean minutes over the
+      player's last 15 games played before the spell's start date (any season;
+      at least 5 games required). Returns with a baseline under 10 mpg are
+      dropped and the number dropped is reported. Ramp ratio at row t: mean
+      minutes over the games played since the return and strictly before t,
+      divided by the baseline, capped at 1.5. Model: linear probability,
+      player fixed effects, season dummies, player-clustered SEs, as in A.
+      Controls: games-since-return bins 3-5 and 6-10 (1-2 is the reference
+      bin, since all rows are in 1-10), log(1 + previous spell length),
+      previous spell major (vs minor), age.
+    baseline_games: 15
+    baseline_min_games: 5
+    baseline_min_mpg: 10
+    games_back: [1, 10]
+    ramp_cap: 1.5
+    primary_result: within-player change in risk, percentage points, per +0.25 ramp ratio
+    threshold: {statistic: effect_pp_per_0.25, direction: greater, value: 0.0}
+    practitioner_reading: >-
+      Predicted risk at a ramp of 0.5, 0.75 and 1.0 of pre-injury minutes
+      (sample mean rate shifted by the slope); and the implied extra spells and
+      games lost per team per season against a policy of ramping no faster
+      than 0.75: coef x sum over rows of max(0, ramp - 0.75), times the mean
+      injury-spell length for games, divided by team-seasons.
+    robustness: [durable targets dur3 and dur2, with this game's minutes added,
+                 previous spell minor vs major, by tissue group of the previous spell,
+                 era 2006-17 vs 2018-23, without 2021-22, confirmation season alone]
+    null_benchmark: >-
+      Shuffle ramp ratios across a player's returns within (player,
+      games-since-return) cells and re-fit, 20 times; report the mean null
+      effect and the bias-adjusted effect as A's rr_null is reported.
+    confound: >-
+      Coaches restrict minutes for players they think are fragile, which pushes
+      against the hypothesis (slow ramps look riskier). D is an association,
+      not proof that ramping causes injury. A null result is reported as a finding.
     seasons: usable
