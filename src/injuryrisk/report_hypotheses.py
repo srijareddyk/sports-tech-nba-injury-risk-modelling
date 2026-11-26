@@ -1,4 +1,4 @@
-"""The front of ``reports/REPORT.md``: the three pre-stated hypotheses.
+"""The front of ``reports/REPORT.md``: the pre-stated hypotheses (A-D) and the tissue analysis.
 
 Every number comes from a CSV written by ``python run.py hypotheses``; every
 sentence that states a result is conditional on those numbers.
@@ -54,6 +54,18 @@ def hypothesis_sections(cfg: dict) -> list[str]:
         {"what a team lacks": "Risk tied to the schedule, months ahead",
          "what public data has": "The league schedule", "hypothesis": "C. Schedule density"},
     ])) + "\n")
+    out.append(
+        "**Hypothesis D (minutes ramp-up)** is not a fourth gap in a team's data: how fast a returning player's "
+        "minutes come back is a decision the staff already control. It turns A's return window into that "
+        "decision, asking whether risk in games 1-10 back is higher when minutes return to the pre-injury level "
+        "faster. A **tissue-type analysis** under A asks whether the window depends on the kind of injury the "
+        "player is coming back from.\n")
+    out.append(
+        "**Disclosure: D and the tissue analysis were added after the A, B and C results had been seen** "
+        "(2026-11-26). Their designs and D's threshold were written into `configs/hypotheses.yaml` and "
+        "committed on their own (\"Pre-register tissue-type analysis and Hypothesis D\") before any code for "
+        "them was written or run. Adding D to the Holm family can only make A, B and C harder to clear. The "
+        "tissue analysis is descriptive and outside the Holm family.\n")
     if summ is None:
         out.append("_Not run yet: `python run.py hypotheses`._\n")
         return out
@@ -63,9 +75,12 @@ def hypothesis_sections(cfg: dict) -> list[str]:
               "p_one_sided", "holm_p"]].copy()
     t["verdict"] = [_verdict(r) for _, r in summ.iterrows()]
     out.append(_table(t, 4) + "\n")
+    m = len(spec["multiple_testing"]["primary"])
+    steps = ", then ".join(f"0.05/{k}" if k > 1 else "0.05" for k in range(m, 0, -1))
     out.append(
-        f"Holm correction across the three primary tests (alpha {spec['multiple_testing']['alpha']}): "
-        "the smallest p-value must clear 0.05/3, the next 0.05/2, the last 0.05. `p_one_sided` is against "
+        f"Holm correction across the {m} primary tests ({', '.join(spec['multiple_testing']['primary'])}; "
+        f"alpha {spec['multiple_testing']['alpha']}): the p-values, smallest first, must clear {steps}. "
+        "`p_one_sided` is against "
         "the stated threshold; Holm is applied to twice that (the two-sided equivalent), so a result that "
         "survives also has its 95% interval past the threshold. Every outcome is reported, null or not.\n")
     out.append(_plain_reading(summ, conf))
@@ -82,6 +97,7 @@ def hypothesis_sections(cfg: dict) -> list[str]:
     out += _section_a(spec, summ)
     out += _section_b(spec, summ)
     out += _section_c(spec, summ)
+    out += _section_d(spec, summ)
     out += _biometrics_section()
     return out
 
@@ -115,7 +131,23 @@ def _plain_reading(summ: pd.DataFrame, conf: int) -> str:
             "it is an **availability** finding, not an injury one: the effect is only in short absences"
             + ("" if c_dur else " (none on spells of 3+ games)")
             + ("" if plac_null else ", and the illness placebo is not null") + "."))
-    return "**Plain reading.**\n\n" + "\n".join([a, b, c]) + "\n"
+    bullets = [a, b, c]
+    drob = _read("hyp_d_robustness.csv")
+    if "D" in v.index and drob is not None:
+        dr = drob.set_index("variant")
+        dm = dr.loc["with this game's minutes"]
+        bullets.append(
+            f"- **D** {'holds' if v['D'] else 'does not hold'}: "
+            + ("players whose minutes come back faster have a higher within-player risk in games 1-10 back."
+               if v["D"] else
+               "a faster return to pre-injury minutes is not detectably riskier than a gradual one within the "
+               "same player. That is a finding, not a gap: staff can't use public data to justify a slower ramp "
+               "on risk grounds, though coaches restricting minutes for players they think are fragile could "
+               "hide a real effect.")
+            + (f" One robustness row disagrees: holding this game's minutes fixed, the ramp effect is "
+               f"{dm['effect_pp']:+.2f} pp per +0.25. That row is not evidence for D (section 5)."
+               if dm.get("ci_lo_pp", 0) > 0 and not v["D"] else ""))
+    return "**Plain reading.**\n\n" + "\n".join(bullets) + "\n"
 
 
 def _audit_text(audit: pd.DataFrame) -> str:
@@ -142,8 +174,8 @@ def _audit_text(audit: pd.DataFrame) -> str:
 def _labels_section(spec) -> list[str]:
     out = ["## 1. How far can the labels be trusted?\n"]
     out.append(
-        "All three hypotheses share one label: *a new injury absence spell starts the next game*. If the label "
-        "is wrong, all three results are wrong in the same way, so it was fixed first.\n")
+        "All four hypotheses share one label: *a new injury absence spell starts the next game*. If the label "
+        "is wrong, every result is wrong in the same way, so it was fixed first.\n")
     drift = _read("hyp_label_drift.csv")
     if drift is not None:
         early = drift[drift["season"].between(2013, 2017)]
@@ -291,6 +323,63 @@ def _section_a(spec, summ) -> list[str]:
         notes += [f"Without 2021-22: {r.loc['without 2021-22', 'rr']:.2f}x "
                   f"({r.loc['without 2021-22', 'rr_bias_adjusted']:.2f}x adjusted)."]
         out.append("\n".join(f"- {n}" for n in notes) + "\n")
+    out += _section_a_tissue(spec)
+    return out
+
+
+def _section_a_tissue(spec) -> list[str]:
+    tis = _read("hyp_a_tissue.csv")
+    out = ["### 2a. Secondary: does the window depend on the tissue type? (outside Holm)\n"]
+    if tis is None:
+        return out + ["_Not run yet._\n"]
+    out.append(
+        "Each injury spell gets a tissue group from its cause note, read by the same vocabulary parser that "
+        "classifies notes (`tissue_group` in `labels/vocab.py`). A named structure decides first (ACL -> "
+        "ligament, meniscus -> joint, tibia -> bone, Achilles or patellar tendon -> soft tissue); otherwise the "
+        "pathology does: strain, tendinitis and bruise -> soft tissue, sprain -> ligament, dislocation -> joint, "
+        "fracture -> bone. A tear counts as soft tissue only on a muscle (hamstring, calf, groin...). Sore, "
+        "tight or unnamed injuries are **unspecified**, which is kept as its own group. Ligament is kept "
+        "separate from soft tissue on purpose. A's primary design (0-5 vs 41+) is then rerun on rows whose "
+        "previous injury spell is in each group.\n")
+    shares = tis.drop_duplicates("tissue_group")[["tissue_group", "injury_spells", "spell_share"]]
+    uns = shares.set_index("tissue_group").loc["unspecified", "spell_share"]
+    out.append(_table(shares.reset_index(drop=True), 3) + "\n")
+    out.append(
+        f"**Limitation:** {uns:.0%} of injury spells are unspecified: the note names a body part and soreness, "
+        "or nothing, and no tissue. Any tissue-level conclusion rests on the other half. A stratified sample of "
+        "60 cause notes (12 per group) is in `data/external/tissue_audit_sample.csv` with a blank `true_group` "
+        "column for hand labelling; **the tissue mapping has not been audited yet.**\n")
+    out.append(_fig("fig_a_tissue.png", "Return-window risk ratio by tissue type"))
+    show = tis[["tissue_group", "outcome", "rows", "window_rows", "window_positives", "ref_rate", "rr", "rr_lo",
+                "rr_hi", "rr_null", "rr_bias_adjusted"]]
+    out.append(_table(show, 3) + "\n")
+    t = tis.set_index(["tissue_group", "outcome"])
+    any_ = t.xs("any new spell", level="outcome")
+    same = t.xs("new spell, same region", level="outcome")
+    big = [g for g in ("soft_tissue", "ligament", "unspecified") if g in any_.index]
+    small = [g for g in ("joint", "bone") if g in any_.index]
+    out.append(
+        "**Reading.** Splitting by group shortens each player's panel, so the raw ratios carry the design's "
+        "short-panel bias (section 2), and several are below zero, which is impossible as a true effect. Read "
+        "the bias-adjusted column, and only for the large groups.\n")
+    lines = [f"{g.replace('_', ' ')}: {any_.loc[g, 'rr_bias_adjusted']:.2f}x bias-adjusted for any new spell, "
+             f"{same.loc[g, 'rr_bias_adjusted']:.2f}x for a new spell in the same region "
+             f"({int(any_.loc[g, 'window_positives'])} new spells in the window)." for g in big]
+    top = max(big, key=lambda g: any_.loc[g, "rr_bias_adjusted"])
+    lines.append(
+        f"The window is strongest after **{top.replace('_', ' ')}** returns. "
+        + ("Those are mostly \"sore\" or \"tightness\" notes, so part of the window may be the same niggle "
+           "logged again rather than a new injury; the same-region excess points the same way."
+           if top == "unspecified" else "")
+        + (" In every large group the excess is in the **same region**, as in the pooled result."
+           if all(same.loc[g, "rr_bias_adjusted"] > 1.5 for g in big)
+           and all(t.loc[(g, "new spell, different region"), "rr_bias_adjusted"] < 1.5 for g in big)
+           else ""))
+    lines.append(
+        f"{' and '.join(g for g in small)}: "
+        + "; ".join(f"{g} has {int(any_.loc[g, 'window_positives'])} new spells in the window" for g in small)
+        + ". **Underpowered**: the estimates are dominated by the bias and noise and are not read.")
+    out.append("\n".join(f"- {x}" for x in lines) + "\n")
     return out
 
 
@@ -413,8 +502,94 @@ def _section_c(spec, summ) -> list[str]:
     return out
 
 
+def _section_d(spec, summ) -> list[str]:
+    h = spec["hypotheses"]["D"]
+    out = ["## 5. Hypothesis D (supporting): minutes ramp-up after return\n", f"> {h['statement']}\n"]
+    eff, rob = _read("hyp_d_effects.csv"), _read("hyp_d_robustness.csv")
+    if eff is None or rob is None or "D" not in set(summ["hypothesis"]):
+        return out + ["_Not run yet._\n"]
+    row = summ[summ["hypothesis"] == "D"].iloc[0]
+    s = eff[eff["section"] == "sample"].set_index("term")["estimate"]
+    out.append(
+        "**Why a professional would use it.** A shows that risk is raised in the first games back. The lever "
+        "staff actually hold during that window is minutes. D asks whether bringing minutes back to the "
+        "pre-injury level quickly is associated with more new injuries than a gradual ramp. *Added after A, B "
+        "and C were seen, and pre-registered before it was run.*\n")
+    out.append(
+        f"**Design.** Rows: the H = 1 risk set in games 1-10 since return (game 0 has no post-return minutes "
+        f"yet), usable seasons. Pre-injury baseline: mean minutes over the player's last {h['baseline_games']} "
+        f"games played before the spell started (at least {h['baseline_min_games']}). **Ramp ratio** at game t: "
+        f"mean minutes over the games played since the return and *before* t, divided by the baseline, capped "
+        f"at {h['ramp_cap']}. Linear probability model, player fixed effects, season dummies, SEs clustered by "
+        f"player; controls: games-since-return bins (1-2 reference, 3-5, 6-10), log(1 + previous spell "
+        f"length), previous spell major, age.\n")
+    out.append(
+        f"**Sample.** {int(s['returns_in_window']):,} returns reach games 1-10. "
+        f"{int(s['returns_dropped_short_baseline'])} were dropped for fewer than {h['baseline_min_games']} "
+        f"pre-injury games and **{int(s['returns_dropped_low_baseline_mpg'])} for a baseline under "
+        f"{h['baseline_min_mpg']} mpg**, leaving {int(s['returns_kept']):,} returns, {int(s['rows_kept']):,} "
+        f"player-games, {int(s['players'])} players and {int(s['positives']):,} new spells "
+        f"({s['mean_rate']:.2%} per game). Median baseline {s['median_baseline_mpg']:.1f} mpg; mean ramp ratio "
+        f"{s['mean_ramp']:.2f}.\n")
+    out.append(_fig("fig_d_ramp.png", "Risk in games 1-10 back by minutes ramp ratio"))
+    coef = eff[eff["section"].isin(["coefficient", "risk at ramp", "units"])][
+        ["section", "term", "estimate", "ci_lo", "ci_hi", "p_value", "unit"]]
+    out.append(_table(coef, 3) + "\n")
+    out.append(
+        f"**Primary result.** Each +0.25 in the ramp ratio changes the within-player risk of a new spell by "
+        f"**{row['estimate']:+.3f} pp** per game (95% CI {row['ci_lo']:+.3f} to {row['ci_hi']:+.3f}; one-sided "
+        f"p {row['p_one_sided']:.3f}, Holm p {row['holm_p']:.3f}): {_verdict(row)}.\n")
+    r = eff[eff["section"] == "risk at ramp"].reset_index(drop=True)
+    u = eff[eff["section"] == "units"].reset_index(drop=True)
+    out.append(
+        f"**In practitioner units:** predicted risk per game is {r.loc[0, 'estimate']:.2f}% at half the "
+        f"pre-injury minutes, {r.loc[1, 'estimate']:.2f}% at three quarters and {r.loc[2, 'estimate']:.2f}% at "
+        f"full minutes. Holding every return to a ramp of no more than 0.75 would change new spells by "
+        f"{u.loc[0, 'estimate']:+.2f} per team per season (95% CI {u.loc[0, 'ci_lo']:+.2f} to "
+        f"{u.loc[0, 'ci_hi']:+.2f}), about {u.loc[1, 'estimate']:+.1f} player-games "
+        f"({u.loc[1, 'ci_lo']:+.1f} to {u.loc[1, 'ci_hi']:+.1f}).\n")
+    out.append("**Robustness** (pp per +0.25 ramp; `null_effect_pp` is the mean estimate with ramp ratios shuffled "
+               "across each player's returns, 20 times; `effect_bias_adjusted_pp` subtracts it):\n")
+    out.append(_table(rob[["variant", "rows", "positives", "returns", "effect_pp", "ci_lo_pp", "ci_hi_pp",
+                           "p_one_sided", "null_effect_pp", "effect_bias_adjusted_pp"]], 3) + "\n")
+    rb = rob.set_index("variant")
+    lines = []
+    pr = rb.loc["primary"]
+    centred = abs(pr["null_effect_pp"]) < pr["null_sd_pp"]
+    lines.append(
+        f"The shuffled null averages {pr['null_effect_pp']:+.3f} pp (sd {pr['null_sd_pp']:.3f}), "
+        + ("so unlike A this design shows no visible bias on the pooled panel. Small subgroups do drift "
+           "(see their null column)." if centred else
+           "so the design is biased on this panel; read the bias-adjusted column."))
+    sig = [v for v in rb.index if v != "primary" and pd.notna(rb.loc[v, "ci_lo_pp"])
+           and (rb.loc[v, "ci_lo_pp"] > 0) != (pr["ci_lo_pp"] > 0)]
+    if sig:
+        lines.append("Rows whose verdict differs from the primary: "
+                     + ", ".join(f"{v} ({rb.loc[v, 'effect_pp']:+.2f} pp, {rb.loc[v, 'ci_lo_pp']:+.2f} to "
+                                 f"{rb.loc[v, 'ci_hi_pp']:+.2f})" for v in sig) + ".")
+    if "with this game's minutes" in sig:
+        lines.append(
+            "**Why the minutes row is not evidence for D.** Holding this game's minutes fixed, a high ramp means "
+            "the player played *less* today than in his recent games, which is what a player hurt during the "
+            "game looks like (he leaves early and misses the next one). This game's minutes are partly an "
+            "outcome of the injury, so conditioning on them builds the outcome into the treatment.")
+    small = [v for v in rb.index if v.startswith("previous spell") and rb.loc[v, "positives"] < 50]
+    if small:
+        lines.append(f"{', '.join(small)}: fewer than 50 new spells each, underpowered and not read.")
+    out.append("\n".join(f"- {x}" for x in lines) + "\n")
+    out.append(
+        "**Confound.** Coaches restrict minutes for players they think are fragile. If they are right, slow "
+        "ramps carry the riskier players and the data push *against* the hypothesis (slow ramps look riskier). "
+        "Player fixed effects remove fixed differences between players, not a coach's read of this player on "
+        "this return. D is an **association, not proof that ramping causes injury**"
+        + (", and a null result here is a finding: on public data, a faster ramp is not detectably riskier "
+           "than a gradual one, and the decision rests on the medical staff's own read." if not row["holds_after_holm"]
+           else ".") + "\n")
+    return out
+
+
 def _biometrics_section() -> list[str]:
-    return ["## 5. Where this sits next to a team's own data\n",
+    return ["## 6. Where this sits next to a team's own data\n",
             """- **Biometrics do better at readiness.** Force plates, tracking load, sleep and medical exams
   describe *this* player *today*. Nothing here replaces an individual return-to-play assessment.
 - **Public data does better at base rates and reach.** It gives a league-wide reference (how big and how

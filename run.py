@@ -13,7 +13,7 @@
     python run.py spell-length   #     games missed per new spell
     python run.py causal         # M7  B2B second-night effect, player fixed effects
     python run.py team-index     # M8  team health index vs actual minutes lost
-    python run.py hypotheses     #     pre-stated hypotheses A, B, C (configs/hypotheses.yaml)
+    python run.py hypotheses     #     pre-stated hypotheses A-D + tissue analysis (configs/hypotheses.yaml)
     python run.py report         # M9  reports/REPORT.md
     python run.py all            # everything after collect, in order
 
@@ -38,6 +38,7 @@ from injuryrisk.config import all_seasons, load_config  # noqa: E402
 from injuryrisk.paths import DATA_EXTERNAL, REPORTS, ensure_dirs  # noqa: E402
 
 AUDIT_FILE = DATA_EXTERNAL / "event_audit_sample.csv"
+TISSUE_AUDIT_FILE = DATA_EXTERNAL / "tissue_audit_sample.csv"
 
 
 def _write(df: pd.DataFrame, name: str) -> None:
@@ -337,8 +338,17 @@ def stage_hypotheses(cfg):
     _write(res["B"]["comparison"], "hyp_b_comparison.csv")
     _write(res["B"]["terciles"], "hyp_b_terciles.csv")
     _write(res["C"]["effects"], "hyp_c_effects.csv")
+    _write(res["A"]["tissue"], "hyp_a_tissue.csv")
+    _write(res["D"]["effects"], "hyp_d_effects.csv")
+    _write(res["D"]["robustness"], "hyp_d_robustness.csv")
     _write(res["summary"], "hypotheses_summary.csv")
-    for path in H.figures(res["A"], res["B"], res["C"], REPORTS):
+    # Never overwrite a sample a teammate may already be labelling.
+    if TISSUE_AUDIT_FILE.exists():
+        print(f"  {TISSUE_AUDIT_FILE.name} exists; not redrawn")
+    else:
+        res["A"]["tissue_audit"].to_csv(TISSUE_AUDIT_FILE, index=False)
+        print(f"  {len(res['A']['tissue_audit'])} notes -> {TISSUE_AUDIT_FILE}. Fill `true_group` by hand.")
+    for path in H.figures(res["A"], res["B"], res["C"], res["D"], REPORTS):
         print(f"  -> {path.relative_to(REPORTS.parent)}")
     print(res["summary"][["hypothesis", "estimate", "ci_lo", "ci_hi", "threshold", "holm_p",
                           "holds_after_holm"]].round(4).to_string(index=False))

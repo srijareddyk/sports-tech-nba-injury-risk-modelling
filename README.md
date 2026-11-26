@@ -7,7 +7,7 @@ notebook pipeline in `nba-final report.ipynb` and fixes the ten defects listed i
 ## Goal
 
 The project tests what public, league-wide data adds to what a team already has, rather than trying
-to out-predict a medical staff. Three hypotheses, written down before testing in
+to out-predict a medical staff. Four hypotheses, written down before testing in
 [configs/hypotheses.yaml](configs/hypotheses.yaml):
 
 | Hypothesis | What public data supplies | Output |
@@ -15,8 +15,12 @@ to out-predict a medical staff. Three hypotheses, written down before testing in
 | **A. Return window** (headline) | League-wide base rates for risk after returning from injury | `reports/hyp_a_*.csv`, `fig_a_return_window.png` |
 | **B. Acquired players** | Injury history on players a team doesn't own yet | `reports/hyp_b_*.csv`, `fig_b_acquired_terciles.png` |
 | **C. Schedule density** | Risk tied to a schedule known months ahead | `reports/hyp_c_effects.csv`, `fig_c_schedule_dose.png` |
+| **D. Minutes ramp-up** (added after A-C were seen) | Not a data gap: turns A's window into a minutes decision staff control | `reports/hyp_d_*.csv`, `fig_d_ramp.png` |
+| A, secondary: **tissue type** (outside Holm) | A's window split by soft tissue / ligament / joint / bone / unspecified | `reports/hyp_a_tissue.csv`, `fig_a_tissue.png`; audit sample `data/external/tissue_audit_sample.csv` |
 
-`python run.py hypotheses` runs all three, applies a Holm correction (`reports/hypotheses_summary.csv`)
+D and the tissue analysis were pre-registered on 2026-11-26, after the A-C results had been seen.
+
+`python run.py hypotheses` runs all four plus the tissue analysis, applies a Holm correction across A-D (`reports/hypotheses_summary.csv`)
 and draws the figures; `python run.py report` puts them at the front of `reports/REPORT.md`.
 
 ## Predictive pipeline (context)
@@ -75,18 +79,18 @@ policy, the fixed GBM search grid, alert budget, cost assumptions.
 
 ```
 configs/base.yaml          pre-registered settings
-configs/hypotheses.yaml    the three hypotheses, thresholds, Holm, holdout decision
+configs/hypotheses.yaml    hypotheses A-D, tissue analysis, thresholds, Holm, holdout decision
 data/raw/                  game logs, bio, PST exports (gitignored)
-data/external/             arenas.csv (coords, time zones), known_absences.csv, audit sample
+data/external/             arenas.csv (coords, time zones), known_absences.csv, event + tissue audit samples
 data/processed/            panel, spells, model table, predictions (gitignored)
 src/injuryrisk/
   collect/                 game_logs, bio, transactions (PST -> PLAYER_ID)
-  labels/                  vocab, classify, absences, target
+  labels/                  vocab (incl. tissue_group), classify, absences, target
   features/                workload, schedule, history, physical, build (asserts every feature)
   models/                  baselines, gbm, survival (hazard + risk factors), glm, runner, spell_length
   evaluate/                splits, metrics, bootstrap, log
   causal/b2b.py            schedule-driven causal slice
-  hypotheses.py            tests A, B, C, null benchmark, Holm, figures
+  hypotheses.py            tests A-D, tissue analysis, null benchmarks, Holm, figures
   team_index.py, interpret.py, report.py, report_hypotheses.py
 tests/                     vocab boundaries, absences, targets, leakage, hypothesis helpers
 run.py                     one command per stage
@@ -95,6 +99,6 @@ run.py                     one command per stage
 ## Known limits
 
 No tracking data (distance, speed, jumps, sleep), so load is proxied by minutes. Labels end in
-2022-23, when the PST export stops. Logged injury rates rise sharply from 2017-18, so later test seasons have higher base rates. Hypotheses A and C use within-player (fixed-effects) designs; everything else is association.
+2022-23, when the PST export stops. Logged injury rates rise sharply from 2017-18, so later test seasons have higher base rates. Hypotheses A, C and D use within-player (fixed-effects) designs; everything else is association.
 The event classifier still needs a hand-labelled audit: `run.py audit-sample` draws the sample
 to `data/external/event_audit_sample.csv`; fill in `true_class`, then run `run.py audit-score`.

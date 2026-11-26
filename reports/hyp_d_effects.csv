@@ -1,0 +1,26 @@
+section,term,estimate,ci_lo,ci_hi,p_value,unit
+coefficient,"ramp ratio, per +0.25",0.10728184931935929,-0.10656405698318983,0.32112775562190843,0.3254649985258511,pp
+coefficient,gsr_3-5,-0.5592401459838424,-1.0655201225286244,-0.052960169439060595,0.030385486450903443,pp
+coefficient,gsr_6-10,-0.7098169878257657,-1.1479439812440495,-0.271689994407482,0.001496149702252092,pp
+coefficient,log_prev_len,-0.5339486211519383,-0.879224846628172,-0.18867239567570446,0.002437287464961635,pp
+coefficient,prev_major,-0.15756199665488582,-0.8134525443803527,0.498328551070581,0.6377528111775059,pp
+coefficient,age,0.29636975718751,-0.36298714641975477,0.9557266607947748,0.3783249682243719,pp
+risk at ramp,ramp 0.50 of pre-injury minutes,2.913780583431698,2.5520129178695585,3.275548248993837,,% per game
+risk at ramp,ramp 0.75 of pre-injury minutes,3.0210624327510573,2.873140673491467,3.1689841920106474,,% per game
+risk at ramp,ramp 1.00 of pre-injury minutes,3.1283442820704166,3.062420135027457,3.1942684291133756,,% per game
+units,extra_spells_per_team_season (vs ramp capped at 0.75),0.08029498357274133,-0.07975775267854042,0.2403477198240231,,per team-season
+units,extra_games_lost_per_team_season (vs ramp capped at 0.75),0.4738224516498452,-0.47065224041041326,1.4182971437101037,,per team-season
+sample,returns_in_window,5387.0,,,,
+sample,rows_in_window,44864.0,,,,
+sample,rows_games_back_mismatch,0.0,,,,
+sample,returns_dropped_short_baseline,51.0,,,,
+sample,returns_dropped_low_baseline_mpg,214.0,,,,
+sample,returns_kept,5122.0,,,,
+sample,rows_kept,42678.0,,,,
+sample,team_seasons,480.0,,,,
+sample,players,972.0,,,,
+sample,positives,1321.0,,,,
+sample,mean_rate,0.0309527156848962,,,,
+sample,mean_ramp,0.9229303144226555,,,,
+sample,median_baseline_mpg,26.866666666666667,,,,
+sample,mean_games_per_injury_spell,5.90102183931076,,,,

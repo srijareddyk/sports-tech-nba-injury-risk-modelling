@@ -1,4 +1,4 @@
-"""The three pre-stated hypotheses (``configs/hypotheses.yaml``).
+"""The pre-stated hypotheses (``configs/hypotheses.yaml``).
 
 * **A, the return window (headline).** Is a player's risk of a new injury
   spell raised in his first games back from injury, against his own later
@@ -9,9 +9,15 @@
 * **C, schedule density.** Is a player more likely to miss the next game with
   a new injury spell when it is the next day? Player fixed effects, dose
   response over the gap, illness placebo.
+* **D, minutes ramp-up** (added 2026-11-26, after A-C were seen). In games
+  1-10 back, is risk higher when minutes have come back to the pre-injury level
+  faster? Player fixed effects; ramp ratio = mean minutes since the return
+  (games before this one only) / pre-injury baseline.
+* **Tissue type** (secondary to A, outside Holm): A's design run separately by
+  the tissue type of the injury the player is returning from.
 
 Every primary test yields a one-sided p-value against its stated threshold;
-Holm is applied across A, B and C. Every result is written to ``reports/``,
+Holm is applied across A, B, C and D. Every result is written to ``reports/``,
 null or not.
 """
 from __future__ import annotations
@@ -28,6 +34,8 @@ from injuryrisk.evaluate.bootstrap import PlayerBootstrap, ci
 from injuryrisk.evaluate.metrics import safe_ap
 from injuryrisk.evaluate.splits import forward_chain, usable_seasons
 from injuryrisk.features.common import asof_last
+from injuryrisk.labels.vocab import (PATHOLOGY_TERMS, REGION_TERMS, STRUCTURE_TERMS, TISSUE_GROUPS,
+                                     find_term, tissue_group)
 from injuryrisk.models.baselines import HISTORY_AGE_ROLE, BaseRate, logistic
 from injuryrisk.paths import CONFIGS
 
@@ -81,11 +89,17 @@ def add_spell_context(table: pd.DataFrame, panel: pd.DataFrame, spells: pd.DataF
     start makes ``y_*_h1`` positive: read only for outcomes, never as a feature.
     """
     d = table.reset_index(drop=True)
-    inj = spells[spells["severity"].isin(["minor", "major"])]
-    last = asof_last(d[["PLAYER_ID", "GAME_DATE"]], inj, ["severity", "cause_region_group", "length"],
-                     edate="known_date")
+    inj = spells[spells["severity"].isin(["minor", "major"])].copy()
+    inj["tissue_group"] = spell_tissue(inj)
+    last = asof_last(d[["PLAYER_ID", "GAME_DATE"]], inj,
+                     ["severity", "cause_region_group", "length", "tissue_group", "spell_id",
+                      "start_date", "end_date"], edate="known_date")
     d["prev_severity"] = last["severity"].to_numpy()
     d["prev_region"] = last["cause_region_group"].to_numpy()
+    d["prev_tissue"] = last["tissue_group"].to_numpy()
+    d["prev_spell_id"] = last["spell_id"].to_numpy()
+    d["prev_start"] = pd.to_datetime(last["start_date"]).to_numpy()
+    d["prev_end"] = pd.to_datetime(last["end_date"]).to_numpy()
 
     p = panel.sort_values(["PLAYER_ID", "GAME_DATE", "GAME_ID"])
     nxt = p.groupby("stint_id")["spell_id"].shift(-1)
@@ -100,6 +114,28 @@ def add_spell_context(table: pd.DataFrame, panel: pd.DataFrame, spells: pd.DataF
     d["y_same_region_h1"] = np.where(y.isna(), np.nan, same.astype(float))
     d["y_diff_region_h1"] = np.where(y.isna(), np.nan, ((y == 1) & ~same).astype(float))
     return d
+
+
+def parse_tissue(notes: pd.Series) -> pd.DataFrame:
+    """Pathology, structure, region and tissue group of each note.
+
+    Re-parses the cause note with the vocabulary parser that classified it
+    (the same ``find_term`` calls as ``classify_note``) instead of carrying the
+    parsed fields through events -> spells, so spells.pkl and the label stages
+    stay untouched.
+    """
+    notes = notes.fillna("")
+    parsed = {}
+    for n in notes.unique():
+        t = n.lower()
+        p, st, r = find_term(t, PATHOLOGY_TERMS), find_term(t, STRUCTURE_TERMS), find_term(t, REGION_TERMS)
+        parsed[n] = (p, st, r, tissue_group(p, st, r))
+    return pd.DataFrame([parsed[n] for n in notes], index=notes.index,
+                        columns=["pathology", "structure", "region", "tissue_group"])
+
+
+def spell_tissue(spells: pd.DataFrame) -> pd.Series:
+    return parse_tissue(spells["cause_notes"])["tissue_group"]
 
 
 def label_drift(d: pd.DataFrame) -> pd.DataFrame:
@@ -306,6 +342,286 @@ def run_a(d: pd.DataFrame, spells: pd.DataFrame, seasons: list[int], spec: dict,
 
 
 # ---------------------------------------------------------------------------
+# A, secondary: tissue type of the injury the player is returning from
+# ---------------------------------------------------------------------------
+
+def tissue_shares(spells: pd.DataFrame, seasons: list[int]) -> pd.DataFrame:
+    """Injury spells per tissue group, usable seasons. ``unspecified`` is kept."""
+    inj = spells[spells["season"].isin(seasons) & spells["severity"].isin(["minor", "major"])]
+    n = spell_tissue(inj).value_counts().reindex(TISSUE_GROUPS, fill_value=0)
+    return pd.DataFrame({"tissue_group": n.index, "injury_spells": n.to_numpy(),
+                         "spell_share": n.to_numpy() / n.sum()})
+
+
+def run_a_tissue(d: pd.DataFrame, spells: pd.DataFrame, seasons: list[int], spec: dict,
+                 seed: int = 7) -> pd.DataFrame:
+    """A's primary design (0-5 vs 41+) by the previous spell's tissue group.
+
+    Rows are those whose previous injury spell is in the group (rows before a
+    first injury have no group), as in A's "previous spell minor/major" rows.
+    """
+    thr = float(spec["hypotheses"]["A"]["threshold"]["value"])
+    du = d[d["season"].isin(seasons)]
+    shares = tissue_shares(spells, seasons).set_index("tissue_group")
+    outcomes = [("any new spell", "y_any_h1"), ("new spell, same region", "y_same_region_h1"),
+                ("new spell, different region", "y_diff_region_h1")]
+    rows = []
+    for gi, g in enumerate(TISSUE_GROUPS):
+        dd = du[du["prev_tissue"] == g]
+        for oi, (name, lab) in enumerate(outcomes):
+            r = {"tissue_group": g, "outcome": name,
+                 "injury_spells": int(shares.loc[g, "injury_spells"]),
+                 "spell_share": float(shares.loc[g, "spell_share"]),
+                 "players": int(dd["PLAYER_ID"].nunique())}
+            if dd.dropna(subset=[lab]).empty:
+                rows.append(r)
+                continue
+            r.update(a_early(dd, lab, thr))
+            if "coef_pp" in r and r.get("window_positives", 0) > 0:
+                nb = null_benchmark(dd, lab, NULL_REPS, seed + 100 + 10 * gi + oi)
+                ref = r["ref_rate"]
+                r["rr_null"] = 1 + nb["null_coef_mean"] / ref
+                r["rr_bias_adjusted"] = 1 + (r["coef_pp"] / 100 - nb["null_coef_mean"]) / ref
+                r["null_sd_rr"] = nb["null_coef_sd"] / ref
+            rows.append(r)
+    return pd.DataFrame(rows)
+
+
+def tissue_audit_sample(spells: pd.DataFrame, seasons: list[int], n: int = 60, seed: int = 7) -> pd.DataFrame:
+    """Stratified sample of distinct injury cause notes, equal share per tissue group.
+
+    Fill ``true_group`` by hand (one of the five groups). A group that can't
+    fill its share is topped up from the rest of the pool.
+    """
+    inj = spells[spells["season"].isin(seasons) & spells["severity"].isin(["minor", "major"])]
+    pool = inj.dropna(subset=["cause_notes"]).drop_duplicates("cause_notes")
+    pool = pd.concat([pool, parse_tissue(pool["cause_notes"])], axis=1)
+    per = int(np.ceil(n / len(TISSUE_GROUPS)))
+    sample = pd.concat([g.sample(min(len(g), per), random_state=seed) for _, g in pool.groupby("tissue_group")])
+    short = n - len(sample)
+    if short > 0:
+        rest = pool.drop(sample.index)
+        sample = pd.concat([sample, rest.sample(min(short, len(rest)), random_state=seed)])
+    out = sample.head(n)[["season", "PLAYER_ID", "cause_event_date", "cause_notes", "severity", "pathology",
+                          "structure", "region", "tissue_group"]].rename(columns={"cause_notes": "notes"})
+    out["true_group"] = ""
+    return out.sort_values(["tissue_group", "notes"]).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# D. Minutes ramp-up after return
+# ---------------------------------------------------------------------------
+
+#: Games-since-return bins inside D's 1-10 window; 1-2 is the reference.
+D_BINS = [("3-5", 3, 5), ("6-10", 6, 10)]
+#: The primary effect is per this step in the ramp ratio.
+D_STEP = 0.25
+D_RAMP_POINTS = (0.5, 0.75, 1.0)
+#: Comparison policy for the practitioner reading: ramp no faster than this.
+D_POLICY_CAP = 0.75
+
+
+def ramp_ratio(rows: pd.DataFrame, apps: pd.DataFrame, baseline_games: int = 15, cap: float = 1.5) -> pd.DataFrame:
+    """Pre-injury baseline and ramp ratio per row, from games before the row only.
+
+    ``rows``: PLAYER_ID, GAME_DATE, prev_start, prev_end (the spell returned
+    from). ``apps``: PLAYER_ID, GAME_DATE, MIN, one row per game played.
+    Baseline = mean minutes over the last ``baseline_games`` games played
+    before ``prev_start``. Ramp = mean minutes over the games played after
+    ``prev_end`` and strictly before ``GAME_DATE``, over the baseline, capped
+    at ``cap``. Aligned to ``rows``.
+    """
+    rows = rows.reset_index(drop=True)
+    cols = ["baseline_games", "baseline_mpg", "games_back", "ramp_mpg"]
+    out = pd.DataFrame(np.nan, index=rows.index, columns=cols)
+    apps = apps.sort_values(["PLAYER_ID", "GAME_DATE"])
+    by_player = {pid: (g["GAME_DATE"].to_numpy("datetime64[ns]"),
+                       np.concatenate([[0.0], np.cumsum(g["MIN"].fillna(0).to_numpy(float))]))
+                 for pid, g in apps.groupby("PLAYER_ID", sort=False)}
+    for pid, idx in rows.groupby("PLAYER_ID").indices.items():
+        if pid not in by_player:
+            continue
+        dates, cs = by_player[pid]
+        r = rows.iloc[idx]
+        now = np.searchsorted(dates, r["GAME_DATE"].to_numpy("datetime64[ns]"), "left")
+        after_end = np.searchsorted(dates, r["prev_end"].to_numpy("datetime64[ns]"), "right")
+        before_start = np.searchsorted(dates, r["prev_start"].to_numpy("datetime64[ns]"), "left")
+        nb = np.minimum(baseline_games, before_start)
+        k = now - after_end
+        with np.errstate(divide="ignore", invalid="ignore"):
+            base = np.where(nb > 0, (cs[before_start] - cs[before_start - nb]) / nb, np.nan)
+            ramp = np.where(k > 0, (cs[now] - cs[np.minimum(after_end, now)]) / k, np.nan)
+        out.iloc[idx, :] = np.column_stack([nb, base, k, ramp])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out["ramp_ratio"] = np.minimum(out["ramp_mpg"] / out["baseline_mpg"], cap)
+    return out
+
+
+def d_rows(d: pd.DataFrame, panel: pd.DataFrame, seasons: list[int], hD: dict) -> tuple[pd.DataFrame, dict]:
+    """D's analysis rows, and how many returns each step drops."""
+    lo, hi = hD["games_back"]
+    du = d[d["season"].isin(seasons) & d["games_since_return"].between(lo, hi)
+           & d["prev_spell_id"].notna() & d["y_any_h1"].notna()].reset_index(drop=True)
+    apps = panel.loc[panel["played"] == 1, ["PLAYER_ID", "GAME_DATE", "MIN"]]
+    du = pd.concat([du, ramp_ratio(du, apps, int(hD["baseline_games"]), float(hD["ramp_cap"]))], axis=1)
+    ret = ["PLAYER_ID", "prev_spell_id"]
+
+    def n_returns(x):
+        return int(x[ret].drop_duplicates().shape[0])
+
+    counts = {"returns_in_window": n_returns(du), "rows_in_window": len(du),
+              "rows_games_back_mismatch": int((du["games_back"] != du["games_since_return"]).sum())}
+    short = du["baseline_games"] < int(hD["baseline_min_games"])
+    counts["returns_dropped_short_baseline"] = n_returns(du[short])
+    du = du[~short]
+    low = du["baseline_mpg"] < float(hD["baseline_min_mpg"])
+    counts["returns_dropped_low_baseline_mpg"] = n_returns(du[low])
+    du = du[~low].reset_index(drop=True)
+    counts["returns_kept"] = n_returns(du)
+    counts["rows_kept"] = len(du)
+    return du, counts
+
+
+def _d_design(d: pd.DataFrame, minutes: bool, ramp_col: str = "ramp_ratio") -> tuple[pd.DataFrame, list[str]]:
+    X = d.copy()
+    X["ramp_step"] = X[ramp_col] / D_STEP          # coefficient = effect per +0.25 ramp
+    terms = ["ramp_step"]
+    gsr = X["games_since_return"]
+    for name, lo, hi in D_BINS:
+        X[f"gsr_{name}"] = gsr.between(lo, hi).astype(float)
+        terms.append(f"gsr_{name}")
+    X["log_prev_len"] = np.log1p(X["last_spell_length"].fillna(0))
+    X["prev_major"] = (X["prev_severity"] == "major").astype(float)
+    X["age"] = X["age"].fillna(X["age"].median())
+    terms += ["log_prev_len", "prev_major", "age"]
+    if minutes:
+        X["min_now"] = X["MIN"].fillna(0)
+        terms.append("min_now")
+    return X, terms
+
+
+def d_fit(d: pd.DataFrame, label: str, minutes: bool = False, ramp_col: str = "ramp_ratio") -> pd.DataFrame:
+    X, terms = _d_design(d.dropna(subset=[label, ramp_col]), minutes, ramp_col)
+    return fe_fit(X, label, terms)
+
+
+def d_effect(d: pd.DataFrame, label: str, minutes: bool = False) -> dict:
+    """Primary statistic: change in risk (pp) per +0.25 ramp ratio, one-sided p against > 0."""
+    dd = d.dropna(subset=[label, "ramp_ratio"])
+    out = {"label": label, "rows": len(dd), "positives": int(dd[label].sum()),
+           "returns": int(dd[["PLAYER_ID", "prev_spell_id"]].drop_duplicates().shape[0]),
+           "players": int(dd["PLAYER_ID"].nunique())}
+    if dd.empty or dd[label].sum() == 0:
+        return out
+    fe = d_fit(dd, label, minutes)
+    r = fe[fe["term"] == "ramp_step"]
+    if r.empty or not r["se"].iloc[0] > 0:
+        return out
+    r = r.iloc[0]
+    return {**out, "mean_rate": float(dd[label].mean()), "mean_ramp": float(dd["ramp_ratio"].mean()),
+            "effect_pp": 100 * r["coef"], "ci_lo_pp": 100 * r["ci_lo"], "ci_hi_pp": 100 * r["ci_hi"],
+            "se_pp": 100 * r["se"], "p_one_sided": 1 - phi(r["coef"] / r["se"])}
+
+
+def d_null(d: pd.DataFrame, label: str, minutes: bool, reps: int, seed: int) -> dict:
+    """Ramp ratios shuffled across a player's returns, within (player, games back) cells.
+
+    Keeps each player's own ramps and the games-back structure and breaks
+    the link to the outcome, then re-fits. The mean of the shuffled estimates
+    is the design's bias on this panel shape (the analogue of A's rr_null).
+    """
+    dd = d.dropna(subset=[label, "ramp_ratio"]).reset_index(drop=True)
+    rng = np.random.default_rng(seed)
+    pid, gsr = dd["PLAYER_ID"].to_numpy(), dd["games_since_return"].to_numpy()
+    ramp = dd["ramp_ratio"].to_numpy()
+    orig = np.lexsort((np.arange(len(dd)), gsr, pid))
+    draws = []
+    for _ in range(reps):
+        perm = np.empty_like(ramp)
+        perm[orig] = ramp[np.lexsort((rng.random(len(dd)), gsr, pid))]
+        dd["ramp_null"] = perm
+        fe = d_fit(dd, label, minutes, ramp_col="ramp_null")
+        draws.append(float(fe.loc[fe["term"] == "ramp_step", "coef"].iloc[0]))
+    draws = np.array(draws)
+    return {"null_effect_pp": 100 * draws.mean(), "null_sd_pp": 100 * draws.std(ddof=1)}
+
+
+def d_units(d: pd.DataFrame, eff: dict, spells: pd.DataFrame, seasons: list[int], team_seasons: int) -> dict:
+    """Risk at ramps of 0.5 / 0.75 / 1.0, and extra spells vs ramping no faster than 0.75.
+
+    Each value is (estimate, low, high), the range from the slope's 95% CI.
+    """
+    slopes = [eff[k] / 100 / D_STEP for k in ("effect_pp", "ci_lo_pp", "ci_hi_pp")]
+    out = {}
+    for r in D_RAMP_POINTS:
+        v = [eff["mean_rate"] + s * (r - eff["mean_ramp"]) for s in slopes]
+        out[f"risk_at_{r}"] = (v[0], min(v[1:]), max(v[1:]))
+    excess = float(np.maximum(0, d["ramp_ratio"] - D_POLICY_CAP).sum())
+    inj = spells[spells["season"].isin(seasons) & spells["severity"].isin(["minor", "major"]) & ~spells["censored"]]
+    mean_len = float(inj["length"].mean())
+    for name, scale in (("extra_spells_per_team_season", 1.0), ("extra_games_lost_per_team_season", mean_len)):
+        v = [s * excess * scale / team_seasons for s in slopes]
+        out[name] = (v[0], min(v[1:]), max(v[1:]))
+    out["mean_games_per_injury_spell"] = mean_len
+    return out
+
+
+def run_d(d: pd.DataFrame, panel: pd.DataFrame, spells: pd.DataFrame, seasons: list[int], spec: dict,
+          seed: int = 7) -> dict:
+    hD = spec["hypotheses"]["D"]
+    conf = int(spec["holdout"]["confirmation_season"])
+    flagged = spec["label"]["flagged_seasons"]
+    dd, counts = d_rows(d, panel, seasons, hD)
+    primary = d_effect(dd, "y_any_h1")
+
+    variants = [
+        ("primary", dd, "y_any_h1", False),
+        ("durable 3+ games", dd, "y_dur3_h1", False),
+        ("durable 2+ games", dd, "y_dur2_h1", False),
+        ("with this game's minutes", dd, "y_any_h1", True),
+        ("previous spell minor", dd[dd["prev_severity"] == "minor"], "y_any_h1", False),
+        ("previous spell major", dd[dd["prev_severity"] == "major"], "y_any_h1", False),
+        *[(f"previous spell {g}", dd[dd["prev_tissue"] == g], "y_any_h1", False) for g in TISSUE_GROUPS],
+        ("era 2006-17", dd[dd["season"] <= 2017], "y_any_h1", False),
+        ("era 2018-23", dd[dd["season"] >= 2018], "y_any_h1", False),
+        ("without 2021-22", dd[~dd["season"].isin(flagged)], "y_any_h1", False),
+        (f"confirmation season {conf} only", dd[dd["season"] == conf], "y_any_h1", False),
+    ]
+    rows = []
+    for i, (name, sub, lab, m) in enumerate(variants):
+        r = {"variant": name, **d_effect(sub, lab, minutes=m)}
+        if "effect_pp" in r:
+            nb = d_null(sub, lab, m, NULL_REPS, seed + 200 + i)
+            r.update(nb)
+            r["effect_bias_adjusted_pp"] = r["effect_pp"] - nb["null_effect_pp"]
+        rows.append(r)
+    rob = pd.DataFrame(rows)
+
+    team_seasons = d[d["season"].isin(seasons)].groupby(["TEAM_ID", "season"]).ngroups
+    units = d_units(dd, primary, spells, seasons, team_seasons)
+    fe = d_fit(dd, "y_any_h1")
+    eff = [{"section": "coefficient", "term": "ramp ratio, per +0.25" if t == "ramp_step" else t,
+            "estimate": 100 * c, "ci_lo": 100 * lo, "ci_hi": 100 * hi, "p_value": p, "unit": "pp"}
+           for t, c, lo, hi, p in fe[["term", "coef", "ci_lo", "ci_hi", "p_value"]].itertuples(index=False)
+           if not t.startswith("s_")]
+    for r in D_RAMP_POINTS:
+        est, lo, hi = units[f"risk_at_{r}"]
+        eff.append({"section": "risk at ramp", "term": f"ramp {r:.2f} of pre-injury minutes",
+                    "estimate": 100 * est, "ci_lo": 100 * lo, "ci_hi": 100 * hi, "unit": "% per game"})
+    for k in ("extra_spells_per_team_season", "extra_games_lost_per_team_season"):
+        est, lo, hi = units[k]
+        eff.append({"section": "units", "term": f"{k} (vs ramp capped at {D_POLICY_CAP})",
+                    "estimate": est, "ci_lo": lo, "ci_hi": hi, "unit": "per team-season"})
+    sample = {**counts, "team_seasons": team_seasons, "players": primary["players"],
+              "positives": primary["positives"], "mean_rate": primary.get("mean_rate"),
+              "mean_ramp": primary.get("mean_ramp"), "median_baseline_mpg": float(dd["baseline_mpg"].median()),
+              "mean_games_per_injury_spell": units["mean_games_per_injury_spell"]}
+    eff += [{"section": "sample", "term": k, "estimate": v} for k, v in sample.items()]
+    return {"rows": dd, "counts": counts, "primary": primary, "robustness": rob,
+            "effects": pd.DataFrame(eff), "units": units}
+
+
+# ---------------------------------------------------------------------------
 # B. Acquired players
 # ---------------------------------------------------------------------------
 
@@ -456,7 +772,7 @@ def run_c(table: pd.DataFrame, seasons: list[int], spec: dict) -> dict:
 # Summary and figures
 # ---------------------------------------------------------------------------
 
-def summary(a: dict, b: dict, c: dict, spec: dict) -> pd.DataFrame:
+def summary(a: dict, b: dict, c: dict, d: dict, spec: dict) -> pd.DataFrame:
     alpha = float(spec["multiple_testing"]["alpha"])
     H = spec["hypotheses"]
     rows = [
@@ -472,6 +788,11 @@ def summary(a: dict, b: dict, c: dict, spec: dict) -> pd.DataFrame:
          "statistic": "next-day game effect, pp", "estimate": c["primary"]["effect_pp"],
          "ci_lo": c["primary"]["ci_lo"], "ci_hi": c["primary"]["ci_hi"],
          "threshold": float(H["C"]["threshold"]["value"]), "p_one_sided": c["primary"]["p_one_sided"]},
+        {"hypothesis": "D", "name": H["D"]["name"], "role": H["D"]["role"],
+         "statistic": "pp change in risk per +0.25 ramp ratio, games 1-10 back",
+         "estimate": d["primary"]["effect_pp"], "ci_lo": d["primary"]["ci_lo_pp"],
+         "ci_hi": d["primary"]["ci_hi_pp"], "threshold": float(H["D"]["threshold"]["value"]),
+         "p_one_sided": d["primary"]["p_one_sided"]},
     ]
     df = pd.DataFrame(rows)
     df["p_two_sided_equiv"] = np.minimum(1.0, 2 * df["p_one_sided"])
@@ -506,7 +827,7 @@ def _title(ax, title, subtitle):
     ax.text(0, 1.03, subtitle, transform=ax.transAxes, fontsize=9, color=INK2)
 
 
-def figures(a: dict, b: dict, c: dict, out_dir: Path) -> list[Path]:
+def figures(a: dict, b: dict, c: dict, d: dict, out_dir: Path) -> list[Path]:
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -601,6 +922,64 @@ def figures(a: dict, b: dict, c: dict, out_dir: Path) -> list[Path]:
     fig.savefig(p, dpi=150, facecolor=SURFACE)
     plt.close(fig)
     paths.append(p)
+
+    # A, secondary: return-window risk ratio by tissue type of the previous injury.
+    fig, ax = _axes(plt, figsize=(7.5, 4.4))
+    t = a["tissue"]
+    t = t[t["outcome"] == "any new spell"].set_index("tissue_group").reindex(TISSUE_GROUPS)
+    x = np.arange(len(TISSUE_GROUPS))
+    ax.errorbar(x - 0.1, t["rr"], yerr=[t["rr"] - t["rr_lo"], t["rr_hi"] - t["rr"]], fmt="o", ms=7,
+                color=SERIES[0], elinewidth=2, capsize=0, label="as estimated, 95% CI",
+                markeredgecolor=SURFACE, markeredgewidth=1.5)
+    ax.plot(x + 0.1, t["rr_bias_adjusted"], "D", ms=7, color=SERIES[1], markeredgecolor=SURFACE,
+            markeredgewidth=1.5, label="after null-benchmark bias adjustment", ls="none")
+    ax.axhline(1.0, color=INK2, lw=1, ls="--")
+    ax.axhline(1.5, color=INK2, lw=1, ls=":")
+    ax.text(x[0] - 0.4, 1.5, "1.5x threshold", va="bottom", ha="left", fontsize=8, color=INK2)
+    ticks =[f"{g.replace('_', ' ')}\n{int(t.loc[g, 'injury_spells']):,} spells ({t.loc[g, 'spell_share']:.0%})\n"
+             f"{int(t.loc[g, 'window_positives']) if pd.notna(t.loc[g, 'window_positives']) else 0} "
+             f"in window" for g in TISSUE_GROUPS]
+    ax.set_xticks(x, ticks, fontsize=8)
+    ax.set_ylabel("risk in games 0-5 back vs own 41+ (x)", fontsize=9, color=INK2)
+    _title(ax, "A, by tissue type: the return window per injury group",
+           "Within-player risk ratio, games 0-5 back vs 41+; secondary analysis, not in the Holm family")
+    ax.legend(frameon=False, fontsize=9, labelcolor=INK, loc="lower left")
+    fig.tight_layout()
+    p = out_dir / "fig_a_tissue.png"
+    fig.savefig(p, dpi=150, facecolor=SURFACE)
+    plt.close(fig)
+    paths.append(p)
+
+    # D: risk in games 1-10 back by ramp ratio.
+    fig, ax = _axes(plt)
+    pr, rows = d["primary"], d["rows"]
+    grid = np.linspace(0.25, 1.5, 50)
+    slopes = [pr[k] / 100 / D_STEP for k in ("effect_pp", "ci_lo_pp", "ci_hi_pp")]
+    lines = [100 * (pr["mean_rate"] + s * (grid - pr["mean_ramp"])) for s in slopes]
+    ax.fill_between(grid, np.minimum(lines[1], lines[2]), np.maximum(lines[1], lines[2]),
+                    color=SERIES[0], alpha=0.15, lw=0)
+    ax.plot(grid, lines[0], color=SERIES[0], lw=2, label="within-player fit, 95% CI")
+    edges = [0, 0.5, 0.75, 1.0, 1.25, 1.5 + 1e-9]
+    cut = pd.cut(rows["ramp_ratio"], edges, right=False)
+    raw = rows.groupby(cut, observed=True)["y_any_h1"].agg(["mean", "size"])
+    mids = [(iv.left + min(iv.right, 1.5)) / 2 for iv in raw.index]
+    ax.plot(mids, 100 * raw["mean"], "o", ms=8, color=SERIES[1], markeredgecolor=SURFACE,
+            markeredgewidth=1.5, label="raw rate by ramp band (not adjusted)", ls="none")
+    for m, (v, n) in zip(mids, raw.itertuples(index=False)):
+        ax.text(m, 100 * v, f"  n={n:,}", fontsize=8, color=INK2, va="center")
+    ax.set_xlabel("ramp ratio: mean minutes since return (before this game) / pre-injury mean",
+                  fontsize=9, color=INK2)
+    ax.set_ylabel("P(new spell next game), %", fontsize=9, color=INK2)
+    ax.set_ylim(bottom=0)
+    _title(ax, "D. Minutes ramp-up after return",
+           f"Games 1-10 back; {pr['effect_pp']:+.2f} pp per +0.25 ramp "
+           f"(95% CI {pr['ci_lo_pp']:+.2f} to {pr['ci_hi_pp']:+.2f}). Association, not cause")
+    ax.legend(frameon=False, fontsize=9, labelcolor=INK, loc="lower right")
+    fig.tight_layout()
+    p = out_dir / "fig_d_ramp.png"
+    fig.savefig(p, dpi=150, facecolor=SURFACE)
+    plt.close(fig)
+    paths.append(p)
     return paths
 
 
@@ -614,4 +993,11 @@ def run_all(table, panel, spells, cfg, spec=None) -> dict:
     b = run_b(table, panel, spells, cfg, spec)
     print("  C: schedule density")
     c = run_c(table, seasons, spec)
-    return {"A": a, "B": b, "C": c, "summary": summary(a, b, c, spec), "label_drift": label_drift(d)}
+    seed = int(cfg["evaluation"]["seed"])
+    print("  A, secondary: tissue type")
+    a["tissue"] = run_a_tissue(d, spells, seasons, spec, seed)
+    a["tissue_audit"] = tissue_audit_sample(spells, seasons, seed=seed)
+    print("  D: minutes ramp-up")
+    dres = run_d(d, panel, spells, seasons, spec, seed)
+    return {"A": a, "B": b, "C": c, "D": dres, "summary": summary(a, b, c, dres, spec),
+            "label_drift": label_drift(d)}
