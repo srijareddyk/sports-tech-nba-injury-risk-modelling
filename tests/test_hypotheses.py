@@ -70,6 +70,14 @@ def test_tissue_mapping():
         "torn ligament in thumb": "ligament",
         "torn knee": "unspecified",           # a tear with no muscle and no structure names no tissue
         "illness": "unspecified",
+        # Rule changes 2026-11-27 (configs/hypotheses.yaml, amendments):
+        "bone bruise in left knee": "bone",
+        "sore right hamstring": "soft_tissue",
+        "left calf injury": "soft_tissue",
+        "tightness in groin": "soft_tissue",
+        "left adductor injury": "soft_tissue",
+        "sprained groin": "ligament",         # a sprain keeps its rule
+        "sore right ankle": "unspecified",    # not a muscle region
     }
     for note, group in cases.items():
         assert note_tissue_group(note) == group, note

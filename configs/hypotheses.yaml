@@ -93,6 +93,21 @@ hypotheses:
             Sore / tightness / no pathology, or anything not covered above
             (e.g. "torn" with no muscle region and no structure). Kept and
             reported; never dropped.
+        amendments:
+          # 2026-11-27, AFTER the first run (commit b27d00d) and a hand check of
+          # 100 random notes plus all edge cases. Decided by the project lead on
+          # clinical grounds; the groups above are the original pre-registration.
+          - date: 2026-11-27
+            change: Bone bruise / bone contusion -> bone (was soft_tissue via "bruised").
+            why: A bone bruise is an injury to the bone, not a soft-tissue contusion.
+          - date: 2026-11-27
+            change: >-
+              A note on a muscle region (hamstring, calf, groin/adductor,
+              quadriceps, thigh, core muscle) that would otherwise be
+              unspecified ("sore hamstring", "calf tightness", "groin injury")
+              -> soft_tissue. Sprains keep their ligament rule; tears on a
+              muscle were already soft_tissue.
+            why: An injury named only by a muscle is a muscle injury; leaving it unspecified inflated that group.
         plumbing: re-parse spells.cause_notes with the existing vocab parser (classify_note)
         design: >-
           A's design (a_early / a_fit: same controls, same bins, 0-5 vs 41+),

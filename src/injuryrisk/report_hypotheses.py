@@ -338,9 +338,17 @@ def _section_a_tissue(spec) -> list[str]:
         "ligament, meniscus -> joint, tibia -> bone, Achilles or patellar tendon -> soft tissue); otherwise the "
         "pathology does: strain, tendinitis and bruise -> soft tissue, sprain -> ligament, dislocation -> joint, "
         "fracture -> bone. A tear counts as soft tissue only on a muscle (hamstring, calf, groin...). Sore, "
-        "tight or unnamed injuries are **unspecified**, which is kept as its own group. Ligament is kept "
-        "separate from soft tissue on purpose. A's primary design (0-5 vs 41+) is then rerun on rows whose "
-        "previous injury spell is in each group.\n")
+        "tight or unnamed injuries elsewhere (\"sore knee\", \"ankle injury\") are **unspecified**, which is kept "
+        "as its own group. Ligament is kept separate from soft tissue on purpose. A's primary design (0-5 vs "
+        "41+) is then rerun on rows whose previous injury spell is in each group.\n")
+    out.append(
+        "**Two rules were changed after the first run** (2026-11-27, recorded as amendments in "
+        "`configs/hypotheses.yaml`), following a hand check of 100 random notes and every edge case: a **bone "
+        "bruise** now counts as bone rather than a soft-tissue bruise, and a sore, tight or unnamed injury on a "
+        "**muscle region** (\"sore hamstring\", \"calf injury\", \"groin tightness\") now counts as soft tissue "
+        "rather than unspecified. Both were decided on clinical grounds, but they were made after the first "
+        "results had been seen, so this analysis is exploratory. The first-run table is in the commit history "
+        "(`b27d00d`).\n")
     shares = tis.drop_duplicates("tissue_group")[["tissue_group", "injury_spells", "spell_share"]]
     uns = shares.set_index("tissue_group").loc["unspecified", "spell_share"]
     out.append(_table(shares.reset_index(drop=True), 3) + "\n")

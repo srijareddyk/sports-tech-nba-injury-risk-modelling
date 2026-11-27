@@ -341,26 +341,38 @@ TISSUE_BY_PATHOLOGY: dict[str, str] = {
     "sprained": "ligament", "dislocated": "joint", "fractured": "bone",
 }
 
-#: Regions that are muscles: a "tear" there is a muscle tear (soft tissue).
+#: Regions that are muscles: a "tear" there is a muscle tear (soft tissue), and
+#: so (rule change 2026-11-27) is a sore or unnamed injury there.
 MUSCLE_REGIONS: tuple[str, ...] = ("hamstring", "calf", "groin", "quadriceps", "thigh", "core muscle")
 
+BONE_BRUISE_LANGUAGE: tuple[str, ...] = ("bone bruise", "bone bruising", "bone contusion")
 
-def tissue_group(pathology: str | None, structure: str | None, region: str | None) -> str:
+
+def tissue_group(pathology: str | None, structure: str | None, region: str | None,
+                 bone_bruise: bool = False) -> str:
     """Tissue type of an injury from the parsed note. Structure beats pathology.
 
     "Torn" names no tissue on its own: it is soft tissue only on a muscle
     region, otherwise unspecified (a torn ACL is already ligament via its
-    structure). "Sore" and no pathology are unspecified.
+    structure). A bone bruise is bone, not a contusion. Rule changes made
+    2026-11-27, after the first run (configs/hypotheses.yaml): bone bruise ->
+    bone, and an injury on a muscle region that would otherwise be
+    unspecified ("sore hamstring", "calf injury") -> soft tissue.
     """
     if structure in TISSUE_BY_STRUCTURE:
         return TISSUE_BY_STRUCTURE[structure]
+    if bone_bruise:
+        return "bone"
     if pathology == "torn":
         return "soft_tissue" if region in MUSCLE_REGIONS else "unspecified"
-    return TISSUE_BY_PATHOLOGY.get(pathology, "unspecified")
+    group = TISSUE_BY_PATHOLOGY.get(pathology, "unspecified")
+    if group == "unspecified" and region in MUSCLE_REGIONS:
+        return "soft_tissue"
+    return group
 
 
 def note_tissue_group(note: str | None) -> str:
     """:func:`tissue_group` of a raw note, via the same parser as ``classify_note``."""
     text = (note or "").lower()
     return tissue_group(find_term(text, PATHOLOGY_TERMS), find_term(text, STRUCTURE_TERMS),
-                        find_term(text, REGION_TERMS))
+                        find_term(text, REGION_TERMS), contains_any(text, BONE_BRUISE_LANGUAGE))

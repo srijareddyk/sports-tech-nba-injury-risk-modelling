@@ -130,45 +130,47 @@ Why not just read the raw curve? In the same simulations with no window, the poo
 
 ### 2a. Secondary: does the window depend on the tissue type? (outside Holm)
 
-Each injury spell gets a tissue group from its cause note, read by the same vocabulary parser that classifies notes (`tissue_group` in `labels/vocab.py`). A named structure decides first (ACL -> ligament, meniscus -> joint, tibia -> bone, Achilles or patellar tendon -> soft tissue); otherwise the pathology does: strain, tendinitis and bruise -> soft tissue, sprain -> ligament, dislocation -> joint, fracture -> bone. A tear counts as soft tissue only on a muscle (hamstring, calf, groin...). Sore, tight or unnamed injuries are **unspecified**, which is kept as its own group. Ligament is kept separate from soft tissue on purpose. A's primary design (0-5 vs 41+) is then rerun on rows whose previous injury spell is in each group.
+Each injury spell gets a tissue group from its cause note, read by the same vocabulary parser that classifies notes (`tissue_group` in `labels/vocab.py`). A named structure decides first (ACL -> ligament, meniscus -> joint, tibia -> bone, Achilles or patellar tendon -> soft tissue); otherwise the pathology does: strain, tendinitis and bruise -> soft tissue, sprain -> ligament, dislocation -> joint, fracture -> bone. A tear counts as soft tissue only on a muscle (hamstring, calf, groin...). Sore, tight or unnamed injuries elsewhere ("sore knee", "ankle injury") are **unspecified**, which is kept as its own group. Ligament is kept separate from soft tissue on purpose. A's primary design (0-5 vs 41+) is then rerun on rows whose previous injury spell is in each group.
+
+**Two rules were changed after the first run** (2026-11-27, recorded as amendments in `configs/hypotheses.yaml`), following a hand check of 100 random notes and every edge case: a **bone bruise** now counts as bone rather than a soft-tissue bruise, and a sore, tight or unnamed injury on a **muscle region** ("sore hamstring", "calf injury", "groin tightness") now counts as soft tissue rather than unspecified. Both were decided on clinical grounds, but they were made after the first results had been seen, so this analysis is exploratory. The first-run table is in the commit history (`b27d00d`).
 
 | tissue_group | injury_spells | spell_share |
 |---|---|---|
-| soft_tissue | 1298 | 0.223 |
-| ligament | 1290 | 0.221 |
+| soft_tissue | 1694 | 0.291 |
+| ligament | 1288 | 0.221 |
 | joint | 72 | 0.012 |
-| bone | 234 | 0.040 |
-| unspecified | 2931 | 0.503 |
+| bone | 262 | 0.045 |
+| unspecified | 2509 | 0.431 |
 
-**Limitation:** 50% of injury spells are unspecified: the note names a body part and soreness, or nothing, and no tissue. Any tissue-level conclusion rests on the other half. A stratified sample of 60 cause notes (12 per group) is in `data/external/tissue_audit_sample.csv` with a blank `true_group` column for hand labelling; **the tissue mapping has not been audited yet.**
+**Limitation:** 43% of injury spells are unspecified: the note names a body part and soreness, or nothing, and no tissue. Any tissue-level conclusion rests on the other half. A stratified sample of 60 cause notes (12 per group) is in `data/external/tissue_audit_sample.csv` with a blank `true_group` column for hand labelling; **the tissue mapping has not been audited yet.**
 
 ![Return-window risk ratio by tissue type](fig_a_tissue.png)
 
 | tissue_group | outcome | rows | window_rows | window_positives | ref_rate | rr | rr_lo | rr_hi | rr_null | rr_bias_adjusted |
 |---|---|---|---|---|---|---|---|---|---|---|
-| soft_tissue | any new spell | 56317 | 6682 | 247 | 0.013 | 0.076 | -0.344 | 0.495 | 0.021 | 1.055 |
-| soft_tissue | new spell, same region | 56317 | 6682 | 157 | 0.003 | 2.974 | 1.888 | 4.059 | -0.316 | 4.290 |
-| soft_tissue | new spell, different region | 56317 | 6682 | 90 | 0.010 | -0.985 | -1.376 | -0.594 | 0.182 | -0.167 |
-| ligament | any new spell | 70226 | 6920 | 179 | 0.012 | -0.157 | -0.576 | 0.262 | 0.061 | 0.782 |
-| ligament | new spell, same region | 70226 | 6920 | 111 | 0.004 | 1.504 | 0.531 | 2.477 | -0.177 | 2.681 |
-| ligament | new spell, different region | 70226 | 6920 | 68 | 0.008 | -0.959 | -1.370 | -0.549 | 0.151 | -0.110 |
+| soft_tissue | any new spell | 68268 | 8647 | 355 | 0.014 | 0.730 | 0.353 | 1.107 | 0.047 | 1.683 |
+| soft_tissue | new spell, same region | 68268 | 8647 | 224 | 0.003 | 4.416 | 3.391 | 5.440 | -0.307 | 5.723 |
+| soft_tissue | new spell, different region | 68268 | 8647 | 131 | 0.010 | -0.530 | -0.869 | -0.190 | 0.276 | 0.194 |
+| ligament | any new spell | 70105 | 6908 | 179 | 0.012 | -0.160 | -0.581 | 0.260 | 0.079 | 0.760 |
+| ligament | new spell, same region | 70105 | 6908 | 111 | 0.004 | 1.508 | 0.534 | 2.482 | -0.137 | 2.645 |
+| ligament | new spell, different region | 70105 | 6908 | 68 | 0.008 | -0.968 | -1.381 | -0.556 | 0.161 | -0.129 |
 | joint | any new spell | 3980 | 393 | 7 | 0.010 | -3.057 | -4.725 | -1.390 | -0.367 | -1.690 |
 | joint | new spell, same region | 3980 | 393 | 1 | 0.001 | -6.113 | -13.136 | 0.910 | -0.280 | -4.833 |
 | joint | new spell, different region | 3980 | 393 | 6 | 0.009 | -2.575 | -4.161 | -0.988 | -0.318 | -1.256 |
-| bone | any new spell | 12723 | 1235 | 26 | 0.012 | -1.548 | -2.366 | -0.729 | -0.231 | -0.317 |
-| bone | new spell, same region | 12723 | 1235 | 13 | 0.002 | 0.476 | -1.889 | 2.841 | -0.444 | 1.920 |
-| bone | new spell, different region | 12723 | 1235 | 13 | 0.009 | -2.062 | -2.932 | -1.192 | 0.027 | -1.089 |
-| unspecified | any new spell | 111615 | 14503 | 616 | 0.013 | 1.300 | 0.962 | 1.638 | 0.174 | 2.127 |
-| unspecified | new spell, same region | 111615 | 14503 | 390 | 0.003 | 7.267 | 6.026 | 8.509 | -0.341 | 8.608 |
-| unspecified | new spell, different region | 111615 | 14503 | 226 | 0.011 | -0.155 | -0.417 | 0.107 | 0.375 | 0.470 |
+| bone | any new spell | 14643 | 1392 | 30 | 0.012 | -1.383 | -2.175 | -0.592 | -0.006 | -0.378 |
+| bone | new spell, same region | 14643 | 1392 | 16 | 0.002 | 0.584 | -1.975 | 3.143 | -0.396 | 1.980 |
+| bone | new spell, different region | 14643 | 1392 | 14 | 0.009 | -1.875 | -2.692 | -1.059 | -0.060 | -0.816 |
+| unspecified | any new spell | 97865 | 12393 | 504 | 0.013 | 1.087 | 0.727 | 1.447 | 0.091 | 1.997 |
+| unspecified | new spell, same region | 97865 | 12393 | 320 | 0.003 | 6.816 | 5.503 | 8.129 | -0.486 | 8.302 |
+| unspecified | new spell, different region | 97865 | 12393 | 184 | 0.010 | -0.311 | -0.606 | -0.016 | 0.297 | 0.392 |
 
 **Reading.** Splitting by group shortens each player's panel, so the raw ratios carry the design's short-panel bias (section 2), and several are below zero, which is impossible as a true effect. Read the bias-adjusted column, and only for the large groups.
 
-- soft tissue: 1.05x bias-adjusted for any new spell, 4.29x for a new spell in the same region (247 new spells in the window).
-- ligament: 0.78x bias-adjusted for any new spell, 2.68x for a new spell in the same region (179 new spells in the window).
-- unspecified: 2.13x bias-adjusted for any new spell, 8.61x for a new spell in the same region (616 new spells in the window).
+- soft tissue: 1.68x bias-adjusted for any new spell, 5.72x for a new spell in the same region (355 new spells in the window).
+- ligament: 0.76x bias-adjusted for any new spell, 2.64x for a new spell in the same region (179 new spells in the window).
+- unspecified: 2.00x bias-adjusted for any new spell, 8.30x for a new spell in the same region (504 new spells in the window).
 - The window is strongest after **unspecified** returns. Those are mostly "sore" or "tightness" notes, so part of the window may be the same niggle logged again rather than a new injury; the same-region excess points the same way. In every large group the excess is in the **same region**, as in the pooled result.
-- joint and bone: joint has 7 new spells in the window; bone has 26 new spells in the window. **Underpowered**: the estimates are dominated by the bias and noise and are not read.
+- joint and bone: joint has 7 new spells in the window; bone has 30 new spells in the window. **Underpowered**: the estimates are dominated by the bias and noise and are not read.
 
 ## 3. Hypothesis B (supporting): acquired players
 
@@ -292,11 +294,11 @@ The gain on new-team rows is not detectably larger than on same-team rows (diffe
 | with this game's minutes | 42678 | 1321 | 5122 | 0.674 | 0.442 | 0.906 | 0.000 | -0.033 | 0.707 |
 | previous spell minor | 32519 | 1104 | 3952 | 0.121 | -0.171 | 0.412 | 0.209 | 0.024 | 0.097 |
 | previous spell major | 10159 | 217 | 1170 | 0.091 | -0.301 | 0.482 | 0.325 | 0.076 | 0.015 |
-| previous spell soft_tissue | 9701 | 300 | 1159 | 0.082 | -0.526 | 0.691 | 0.396 | -0.197 | 0.280 |
-| previous spell ligament | 10069 | 251 | 1162 | -0.293 | -0.777 | 0.191 | 0.882 | -0.176 | -0.117 |
+| previous spell soft_tissue | 12397 | 418 | 1507 | 0.016 | -0.523 | 0.555 | 0.477 | 0.003 | 0.013 |
+| previous spell ligament | 10049 | 251 | 1160 | -0.300 | -0.790 | 0.190 | 0.885 | -0.057 | -0.243 |
 | previous spell joint | 590 | 11 | 65 | 2.809 | 0.212 | 5.407 | 0.017 | 1.563 | 1.247 |
-| previous spell bone | 1766 | 32 | 200 | 0.643 | -0.621 | 1.907 | 0.159 | 0.541 | 0.102 |
-| previous spell unspecified | 20552 | 727 | 2536 | 0.263 | -0.133 | 0.659 | 0.096 | 0.056 | 0.207 |
+| previous spell bone | 2012 | 36 | 227 | 0.941 | -0.518 | 2.400 | 0.103 | 0.444 | 0.497 |
+| previous spell unspecified | 17630 | 605 | 2163 | 0.331 | -0.078 | 0.739 | 0.056 | 0.134 | 0.196 |
 | era 2006-17 | 25112 | 614 | 2916 | 0.070 | -0.195 | 0.336 | 0.302 | 0.003 | 0.068 |
 | era 2018-23 | 17566 | 707 | 2238 | 0.104 | -0.282 | 0.491 | 0.298 | -0.045 | 0.150 |
 | without 2021-22 | 37590 | 1068 | 4459 | 0.075 | -0.152 | 0.301 | 0.259 | -0.026 | 0.101 |

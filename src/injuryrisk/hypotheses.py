@@ -34,8 +34,8 @@ from injuryrisk.evaluate.bootstrap import PlayerBootstrap, ci
 from injuryrisk.evaluate.metrics import safe_ap
 from injuryrisk.evaluate.splits import forward_chain, usable_seasons
 from injuryrisk.features.common import asof_last
-from injuryrisk.labels.vocab import (PATHOLOGY_TERMS, REGION_TERMS, STRUCTURE_TERMS, TISSUE_GROUPS,
-                                     find_term, tissue_group)
+from injuryrisk.labels.vocab import (BONE_BRUISE_LANGUAGE, PATHOLOGY_TERMS, REGION_TERMS, STRUCTURE_TERMS,
+                                     TISSUE_GROUPS, contains_any, find_term, tissue_group)
 from injuryrisk.models.baselines import HISTORY_AGE_ROLE, BaseRate, logistic
 from injuryrisk.paths import CONFIGS
 
@@ -129,7 +129,7 @@ def parse_tissue(notes: pd.Series) -> pd.DataFrame:
     for n in notes.unique():
         t = n.lower()
         p, st, r = find_term(t, PATHOLOGY_TERMS), find_term(t, STRUCTURE_TERMS), find_term(t, REGION_TERMS)
-        parsed[n] = (p, st, r, tissue_group(p, st, r))
+        parsed[n] = (p, st, r, tissue_group(p, st, r, contains_any(t, BONE_BRUISE_LANGUAGE)))
     return pd.DataFrame([parsed[n] for n in notes], index=notes.index,
                         columns=["pathology", "structure", "region", "tissue_group"])
 
